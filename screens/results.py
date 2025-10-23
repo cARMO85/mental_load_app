@@ -4,11 +4,16 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 from typing import Dict, List
+import logging
 
 from state import reset_state
 from tasks import TASK_LOOKUP
 from models import Response
 from logic import Calculator
+
+# Set up error logging
+logging.basicConfig(level=logging.ERROR)
+logger = logging.getLogger(__name__)
 
 A_COL = "#0072B2"  # Okabe–Ito blue (Partner A)
 B_COL = "#E69F00"  # Okabe–Ito orange (Partner B)
@@ -561,13 +566,39 @@ def screen_results_main():
     
     if not st.session_state.get("responses"):
         st.warning("No results yet. Please complete the questionnaire first.")
+        if st.button("← Return to Questionnaire", use_container_width=True):
+            st.session_state.stage = "questionnaire"
+            st.rerun()
         return
 
-    # compute results once
-    response_objs = _to_response_objects(st.session_state.responses)
-    calc = Calculator(response_objs)
-    results = calc.compute()
-    hotspots = Calculator.detect_hotspots(response_objs)
+    # Compute results with error handling
+    try:
+        response_objs = _to_response_objects(st.session_state.responses)
+
+        if not response_objs:
+            st.error("No valid responses found. Please complete at least one task.")
+            if st.button("← Return to Questionnaire", use_container_width=True):
+                st.session_state.stage = "questionnaire"
+                st.rerun()
+            return
+
+        calc = Calculator(response_objs)
+        results = calc.compute()
+        hotspots = Calculator.detect_hotspots(response_objs)
+
+    except Exception as e:
+        st.error(f"""
+        **Error Processing Results**
+
+        We encountered an error: {str(e)}
+
+        Please try:
+        1. Refreshing the page
+        2. Using a different browser
+        3. Contacting the researcher: [ADD YOUR EMAIL HERE]
+        """)
+        logger.error(f"Results error: {str(e)}", exc_info=True)
+        return
 
     # Initialize page if not set
     if "results_page" not in st.session_state:
