@@ -8,6 +8,7 @@ from screens.setup import screen_setup
 from screens.questionnaire import screen_questionnaire
 from screens.results import screen_results
 from screens.learnmore import screen_learn_more
+from utils.dev_mode import toggle_dev_mode, is_dev_mode, dev_mode_widget
 
 st.set_page_config(page_title="Mental Load Coach", page_icon="🧠", layout="wide")
 
@@ -32,6 +33,21 @@ with st.sidebar:
     if st.button("🔁 Start again"):
         reset_state()
         st.session_state.stage = "home"
+    
+    # Dev mode toggle at bottom
+    st.divider()
+    dev_mode_enabled = is_dev_mode()
+    if st.button(
+        f"{'🛠️ Dev Mode: ON' if dev_mode_enabled else '🔧 Dev Mode: OFF'}", 
+        use_container_width=True,
+        type="primary" if dev_mode_enabled else "secondary"
+    ):
+        toggle_dev_mode()
+        st.rerun()
+    
+    # Show dev controls if enabled
+    dev_mode_widget()
+    
     st.caption("You can return here at any time.")
 
 # ---- Router ----
@@ -44,7 +60,7 @@ elif stage == "setup":
     screen_setup()
 elif stage == "questionnaire":
     screen_questionnaire()
-elif stage == "results":
+elif stage == "results" or stage == "results_main":
     screen_results()
 elif stage == "learn_more":
     screen_learn_more()

@@ -68,6 +68,36 @@ def _reason_to_question(reasons: str) -> str:
         return "What makes this task feel so heavy? Could part of it be shared or simplified?"
     return "What's one small thing that might make this easier?"
 
+def _add_notes_section(page_name: str):
+    """Add optional notes section with clear privacy messaging"""
+    with st.expander("📝 Add notes from your conversation (optional)"):
+        st.info("""
+        **Privacy promise:** 
+        - These notes are ONLY stored in your browser's temporary session
+        - They're included in your CSV export if you download it
+        - Nothing is sent to any server or saved anywhere else
+        - When you close this browser tab, they're gone forever
+        """)
+        
+        # Initialize notes dict if it doesn't exist
+        if "results_notes" not in st.session_state:
+            st.session_state.results_notes = {}
+        
+        # Get existing note for this page
+        existing_note = st.session_state.results_notes.get(page_name, "")
+        
+        note = st.text_area(
+            "Your notes:",
+            value=existing_note,
+            height=120,
+            placeholder="Jot down insights, agreements, or things to try...",
+            key=f"note_{page_name}",
+            help="These notes are only stored temporarily in your browser and included in your export."
+        )
+        
+        # Save note to session state
+        st.session_state.results_notes[page_name] = note
+
 # ---------- visuals ----------
 def comparison_bars(a_val: int, b_val: int, max_val: int = 100, label_a="Partner A", label_b="Partner B"):
     """Simple horizontal comparison bars"""
@@ -151,6 +181,17 @@ def _export_csv(responses, results, hotspots):
         hs_rows = [{"Task": h.get("task", ""), "Why it matters": _plain_reason(h.get("reasons", "")), "Question to discuss": _reason_to_question(h.get("reasons", ""))} for h in hotspots]
         csv += "\n\nCONVERSATION STARTERS\n" + pd.DataFrame(hs_rows).to_csv(index=False)
 
+    # Include conversation notes if any exist
+    notes = st.session_state.get("results_notes", {})
+    if any(v.strip() for v in notes.values()):
+        csv += "\n\nYOUR CONVERSATION NOTES\n"
+        notes_rows = []
+        for page, note in notes.items():
+            if note.strip():
+                notes_rows.append({"Page": page, "Notes": note.strip()})
+        if notes_rows:
+            csv += pd.DataFrame(notes_rows).to_csv(index=False)
+
     return csv
 
 # ---------- conversation prep screen ----------
@@ -224,39 +265,23 @@ def screen_before_results():
     with col1:
         if st.button("← Back to questionnaire", use_container_width=True):
             st.session_state.stage = "questionnaire"
+            st.rerun()
     with col2:
         if st.button("We're ready - show results →", use_container_width=True, type="primary"):
-            st.session_state.stage = "results"
+            st.session_state.results_page = 1
+            st.session_state.stage = "results_main"
+            st.rerun()
 
-# ---------- main results screen ----------
-def screen_results():
-    # Header with navigation
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        st.title("📊 Your Mental Load Results")
-    with col2:
-        if st.button("🔁 Start Over", use_container_width=True):
-            reset_state()
-            st.session_state.stage = "home"
-    with col3:
-        if st.button("📥 Export", use_container_width=True):
-            st.session_state.show_export = True
+# ---------- PAGINATED RESULTS SECTIONS ----------
 
-    if not st.session_state.get("responses"):
-        st.warning("No results yet. Please complete the questionnaire first.")
-        return
-
-    # compute
-    response_objs = _to_response_objects(st.session_state.responses)
-    calc = Calculator(response_objs)
-    results = calc.compute()
-    hotspots = Calculator.detect_hotspots(response_objs)
-
+def _results_page_1_share(results, hotspots):
+    """Page 1: The Big Picture - Who's Carrying What"""
+    st.title("📊 Your Results: The Big Picture")
     st.caption("💙 Remember: This is about understanding, not blame.")
+    st.progress(20)  # 1 of 5 pages
     
     st.markdown("---")
     
-    # ====== SECTION 1: WHAT THE RESEARCH SHOWS + YOUR DATA ======
     st.markdown("## 📚 Context: What Research Shows")
     
     with st.expander("📖 Click to read about mental load patterns in households"):
@@ -278,7 +303,6 @@ def screen_results():
     st.markdown("Here's what your responses show about mental load distribution right now.")
     
     a_share, b_share = results["my_share_pct"], results["partner_share_pct"]
-    a_int, b_int = results["my_intensity"], results["partner_intensity"]
     
     # Share percentages
     st.markdown("**Mental load share (who's carrying the invisible work):**")
@@ -302,10 +326,21 @@ def screen_results():
     - What surprises you about this number?
     - What might explain this pattern in your household?
     """)
+    
+    # Optional notes
+    st.markdown("---")
+    _add_notes_section("Page 1: The Big Picture")
+
+
+def _results_page_2_burden(results):
+    """Page 2: How Heavy Does It Feel"""
+    st.title("📊 How Heavy Does It Feel?")
+    st.caption("💙 Understanding the emotional weight of invisible work")
+    st.progress(40)  # 2 of 5 pages
+    
     st.markdown("---")
     
-    # ====== SECTION 2: HOW HEAVY DOES IT FEEL? ======
-    st.markdown("## 😰 How Heavy Does It Feel?")
+    st.markdown("## 😰 Personal Burden")
     st.markdown("""
     **Personal burden (0-100):** This isn't about how much time tasks take - it's about how draining 
     the mental work feels.
@@ -316,6 +351,7 @@ def screen_results():
     - Carrying responsibility without recognition
     """)
     
+    a_int, b_int = results["my_intensity"], results["partner_intensity"]
     st.plotly_chart(comparison_bars(a_int, b_int, 100, "Partner A", "Partner B"), use_container_width=True)
     
     # Research context
@@ -338,10 +374,21 @@ def screen_results():
     - For the person with lower burden: Does this surprise you? What might you not be seeing?
     - Are there times of day or week when burden peaks for each of you?
     """)
+    
+    # Optional notes
+    st.markdown("---")
+    _add_notes_section("Page 2: How Heavy Does It Feel")
+
+
+def _results_page_3_pillars(results):
+    """Page 3: The Five Pillars"""
+    st.title("📊 Where the Mental Load Lives")
+    st.caption("💙 Breaking down the five types of invisible work")
+    st.progress(60)  # 3 of 5 pages
+    
     st.markdown("---")
     
-    # ====== SECTION 3: THE FIVE PILLARS ======
-    st.markdown("## 🏛️ Where the Mental Load Lives")
+    st.markdown("## 🏛️ The Five Pillars of Mental Load")
     st.markdown("""
     Research identifies five types of cognitive labor in households. This chart shows which 
     partner is carrying more of each type.
@@ -377,10 +424,21 @@ def screen_results():
     - Is there a pillar where one person didn't realize how much the other was doing?
     - Research shows "monitoring" is often invisible - does that resonate?
     """)
+    
+    # Optional notes
+    st.markdown("---")
+    _add_notes_section("Page 3: The Five Pillars")
+
+
+def _results_page_4_hotspots(hotspots):
+    """Page 4: Conversation Starters"""
+    st.title("📊 Conversation Starters")
+    st.caption("💙 Topics worth exploring together")
+    st.progress(80)  # 4 of 5 pages
+    
     st.markdown("---")
     
-    # ====== SECTION 4: CONVERSATION STARTERS ======
-    st.markdown("## 💬 Conversation Starters")
+    st.markdown("## 💬 Areas to Explore")
     st.markdown("""
     These aren't "problems to fix" - they're **topics worth exploring together**. 
     
@@ -425,9 +483,20 @@ def screen_results():
         now might need adjustment later.
         """)
     
+    # Optional notes
+    st.markdown("---")
+    _add_notes_section("Page 4: Conversation Starters")
+
+
+def _results_page_5_action():
+    """Page 5: What's Next"""
+    st.title("📊 What's Next")
+    st.caption("💙 Building from strengths and trying small experiments")
+    st.progress(100)  # 5 of 5 pages
+    
     st.markdown("---")
     
-    # ====== SECTION 5: WHAT'S WORKING ======
+    # ====== WHAT'S WORKING ======
     st.markdown("## ✨ What's Working Well")
     st.markdown("""
     Research on couple interventions shows that building from strengths is more effective than 
@@ -441,7 +510,7 @@ def screen_results():
         if resp_diff <= 20 and task_response.get("burden", 50) < 60:
             task = TASK_LOOKUP.get(task_response["task_id"])
             if task:
-                balanced_areas.append(task.description)
+                balanced_areas.append(task.name)
     
     if balanced_areas:
         st.success(f"**Areas showing good balance:** {', '.join(balanced_areas[:5])}")
@@ -451,7 +520,7 @@ def screen_results():
     
     st.markdown("---")
     
-    # ====== SECTION 6: EXPERIMENT MINDSET ======
+    # ====== EXPERIMENT ======
     st.markdown("## 🧪 Try One Small Experiment")
     st.markdown("""
     Research on behavior change shows that small, time-bound experiments work better than big overhauls.
@@ -468,52 +537,129 @@ def screen_results():
     - Reversible (you can always go back)
     """)
     
-    # Optional note space (but don't require it)
-    st.markdown("**Optional:** Use this space to jot down your experiment (not stored, just for your conversation):")
-    st.text_area(
-        "Our one-week experiment:",
-        key="action_plan",
-        height=100,
-        placeholder="Example: This week, Partner A will handle meal planning Mon-Wed, Partner B Thu-Sun. Sunday evening 15-min check-in about how it felt.",
-        help="This is NOT saved - it's just a space to type during your conversation. Download the PDF if you want to keep it."
-    )
-    
     st.markdown("---")
+    st.markdown("## 🎉 You've Completed the Journey")
+    st.success("""
+    You've taken an important step toward understanding mental load in your household. 
     
-    # ====== EXPORT ======
-    if st.session_state.get("show_export", False):
-        st.markdown("## 📥 Export Your Results")
-        st.caption("Download your data for reference. No data is stored by this tool - everything stays in your browser session.")
-        
+    **Next steps:**
+    - Add any final notes below
+    - Download your results (including all your notes)
+    - Try your small experiment for one week
+    - Check in together next weekend
+    - Return to this tool in a month to see how things have shifted
+    """)
+    
+    # Optional notes
+    st.markdown("---")
+    _add_notes_section("Page 5: Action Plan & Experiment")
+
+
+# ---------- main results navigation ----------
+def screen_results_main():
+    """Main results with pagination"""
+    
+    if not st.session_state.get("responses"):
+        st.warning("No results yet. Please complete the questionnaire first.")
+        return
+
+    # compute results once
+    response_objs = _to_response_objects(st.session_state.responses)
+    calc = Calculator(response_objs)
+    results = calc.compute()
+    hotspots = Calculator.detect_hotspots(response_objs)
+
+    # Initialize page if not set
+    if "results_page" not in st.session_state:
+        st.session_state.results_page = 1
+    
+    current_page = st.session_state.results_page
+    
+    # Header navigation (always visible)
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        st.caption(f"Page {current_page} of 5")
+    with col2:
+        if st.button("🔁 Start Over", use_container_width=True):
+            reset_state()
+            st.session_state.stage = "home"
+            st.rerun()
+    with col3:
         csv_data = _export_csv(st.session_state.responses, results, hotspots)
         st.download_button(
-            "📊 Download Results (CSV)",
+            "📥 Export",
             data=csv_data,
             file_name="mental_load_results.csv",
             mime="text/csv",
             use_container_width=True,
         )
-        
-        if st.button("Close export"):
-            st.session_state.show_export = False
-            st.rerun()
-    else:
-        if st.button("📥 Export Results", use_container_width=True):
-            st.session_state.show_export = True
-            st.rerun()
+    
+    st.markdown("---")
+    
+    # Render current page
+    if current_page == 1:
+        _results_page_1_share(results, hotspots)
+    elif current_page == 2:
+        _results_page_2_burden(results)
+    elif current_page == 3:
+        _results_page_3_pillars(results)
+    elif current_page == 4:
+        _results_page_4_hotspots(hotspots)
+    elif current_page == 5:
+        _results_page_5_action()
+    
+    # Show note count if any notes exist
+    notes = st.session_state.get("results_notes", {})
+    note_count = sum(1 for v in notes.values() if v.strip())
+    if note_count > 0:
+        st.info(f"📝 You have notes on {note_count} page(s) - they'll be included in your export")
+    
+    # Navigation footer (always at bottom)
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col1:
+        if current_page > 1:
+            if st.button("← Previous", use_container_width=True):
+                st.session_state.results_page -= 1
+                st.rerun()
+        else:
+            st.button("← Previous", disabled=True, use_container_width=True)
+    
+    with col2:
+        # Page indicators
+        dots = ""
+        for i in range(1, 6):
+            if i == current_page:
+                dots += "🔵 "
+            else:
+                dots += "⚪ "
+        st.markdown(f"<div style='text-align: center; padding: 8px;'>{dots}</div>", unsafe_allow_html=True)
+    
+    with col3:
+        if current_page < 5:
+            if st.button("Next →", use_container_width=True, type="primary"):
+                st.session_state.results_page += 1
+                st.rerun()
+        else:
+            if st.button("🏠 Finish", use_container_width=True, type="primary"):
+                st.session_state.stage = "home"
+                st.rerun()
     
     st.markdown("---")
     st.caption("""
     💙 **Remember:** This is one snapshot in time. Mental load shifts with life circumstances. 
     The healthiest couples check in regularly, not just once.
     """)
-    st.caption("🔬 This tool is based on research in household labor, emotional labor, and cognitive load. Not a substitute for couples therapy.")
 
 
-# ---------- Route to correct screen ----------
-def show_results_flow():
-    """Handle the results flow with prep screen"""
-    if st.session_state.get("stage") == "results_prep":
+# ---------- Main entry point ----------
+def screen_results():
+    """Route to either prep screen or main results"""
+    # First time seeing results? Show prep screen
+    if not st.session_state.get("results_prep_seen", False):
         screen_before_results()
+        st.session_state.results_prep_seen = True
     else:
-        screen_results()
+        # They've seen prep, show paginated results
+        screen_results_main()

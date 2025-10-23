@@ -3,101 +3,138 @@ import streamlit as st
 from typing import Dict, List
 
 from tasks import get_filtered_tasks, group_by_pillar
-from utils.ui import (
-    step_header, learn_popover, safety_note, section_notes, tiny_hint, definition_box
-)
+from utils.ui import step_header, learn_popover, safety_note
 
-# --------- Pillar labels + quick “set the scene” lines (unchanged vibe) ---------
-PILLAR_LABELS: Dict[str, str] = {
-    "anticipation": "Anticipating (noticing what’s needed soon)",
-    "identification": "Identifying (what exactly needs doing)",
-    "decision": "Deciding (who/when/how it gets done)",
-    "monitoring": "Monitoring (following up & checking)",
-    "emotional": "Emotional load (worrying, calming, caring)",
+# --------- Pillar context (conversational, research-grounded) ---------
+PILLAR_INTRO: Dict[str, Dict[str, str]] = {
+    "anticipation": {
+        "title": "🔮 Anticipation: Thinking Ahead",
+        "research": "Research identifies anticipation as one of four core dimensions of household cognitive labour (Daminger, 2019). This involves thinking ahead to what will be needed, often before anyone else notices.",
+        "what_it_means": "This is the mental work of noticing what will be needed soon and planning for it before it becomes urgent.",
+        "example": "Remembering the school form is due Friday, noticing you're low on milk, planning meals for the week."
+    },
+    "identification": {
+        "title": "👁️ Identification: Noticing What Needs Doing",
+        "research": "Identification refers to recognising what needs to be done and breaking it down into actionable tasks (Daminger, 2019). Studies show this 'noticing work' is often gendered and invisible to those not doing it.",
+        "what_it_means": "This is the work of seeing what needs to happen and defining the actual tasks involved.",
+        "example": "Spotting that the bathroom needs cleaning, recognising a child needs new shoes, seeing the light bulb is out."
+    },
+    "decision": {
+        "title": "🤔 Decision-Making: Choosing How & When",
+        "research": "Decision-making includes researching options, weighing trade-offs, and coordinating schedules (Daminger, 2019). This 'project management' work is often invisible yet cognitively demanding.",
+        "what_it_means": "This is about making choices for the household - which doctor, what gift, how to handle a situation.",
+        "example": "Choosing which childcare, deciding what to cook, picking a birthday gift, scheduling appointments."
+    },
+    "monitoring": {
+        "title": "📋 Monitoring: Following Up & Tracking",
+        "research": "Monitoring involves tracking whether tasks are completed and following up when needed (Daminger, 2019). Research emphasises this as a particularly invisible form of cognitive labour that can remain stressful even when tasks are delegated.",
+        "what_it_means": "This is the work of tracking progress, remembering deadlines, and ensuring things don't fall through the cracks.",
+        "example": "Checking if forms got submitted, following up on RSVPs, tracking when bills are due, reminding about tasks."
+    },
+    "emotional": {
+        "title": "💝 Emotional Labour: The Caring Work",
+        "research": "Emotional labour includes managing feelings, maintaining relationships, and creating household harmony (Dean, Churchill and Ruppanner, 2022). Research now recognises this as cognitive work, not simply 'being nice'.",
+        "what_it_means": "This is about noticing and responding to others' feelings, maintaining family relationships, and creating a positive home environment.",
+        "example": "Soothing upset children, remembering to call grandma, managing conflicts, creating special moments."
+    }
 }
 
-PILLAR_HINTS: Dict[str, str] = {
-    "anticipation": "Looking ahead so things don’t fall through the cracks.",
-    "identification": "Spelling out the parts of a job so it’s do-able.",
-    "decision": "Choosing who, when, and how — and coordinating moving pieces.",
-    "monitoring": "Keeping track and nudging so things actually happen.",
-    "emotional": "Caring, soothing, remembering what matters to people.",
-}
-
-# --------- Slider labels + help (tweaked wording, same layout) ---------
-RESP_LABEL = "Responsibility (0 = Partner A • 100 = Partner B)"
-BURDEN_LABEL = "Burden (1–5) — how taxing it feels to the person who mostly leads it"
-FAIRNESS_LABEL = "Fairness (1–5) — how fair this feels to both of you today"
-
-RESP_HELP = (
-    "Who mainly owns the noticing/planning/follow-ups for this right now? "
-    "0 = Partner A, 100 = Partner B."
-)
-BURDEN_HELP = (
-    "Rate the mental effort for the person who mostly leads this task at the moment. "
-    "If you see it differently, jot both views in Notes — that’s useful data."
-)
-FAIRNESS_HELP = "Your shared sense of fairness today (not in theory). Low = doesn’t feel fair."
-
-# --------- One task block (keeps your context-first card + same slider layout) ---------
-def _task_response_block(task, default=None):
-    """
-    Renders one task with:
-      - a context/definition card (broad explanation first)
-      - responsibility / burden / fairness / N/A (same column layout as before)
-      - optional example only if task.example exists
-    Returns a dict to store in st.session_state.responses.
-    """
-    st.subheader(task.name)
-
-    # Broad, guiding context (kept — small wording polish).
-    definition = getattr(task, "definition", None) or (
-        "Consider the whole invisible side: who notices, plans, coordinates and follows up — "
-        "not just the visible doing."
-    )
-    what_counts = getattr(task, "what_counts", None)
-    note = getattr(task, "note", None)
-    example = getattr(task, "example", None)  # only show if it truly adds clarity
-
-    definition_box(
-        title=f"What this covers: {task.name}",
-        definition=definition,
-        what_counts=what_counts,
-        note=note,
-        example=example,         # will render only if provided
-    )
-
-    # Keep EXACT layout you liked: 3 sliders + N/A in a 2/2/2/1 grid.
-    col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+# --------- Helper for task display ---------
+def _render_task_card(task, default=None):
+    """Simplified, conversation-focused task card"""
+    
+    # Task name as header
+    st.markdown(f"### {task.name}")
+    
+    # Brief definition (not overwhelming)
+    if task.definition:
+        st.markdown(f"*{task.definition}*")
+    
+    # What counts (in a compact format)
+    if task.what_counts:
+        with st.expander("💡 What this includes"):
+            for item in task.what_counts:
+                st.markdown(f"• {item}")
+    
+    # Example if helpful
+    if task.example:
+        st.info(f"**Example:** {task.example}")
+    
+    st.markdown("")  # Spacing
+    
+    # Three questions, presented more conversationally
+    st.markdown("**Answer these three questions together:**")
+    
+    col1, col2 = st.columns([3, 1])
+    
     with col1:
+        # 1. Responsibility
+        st.markdown("**1. Who mainly handles this right now?**")
         responsibility = st.slider(
-            RESP_LABEL,
-            min_value=0, max_value=100, value=(default or {}).get("responsibility", 50),
-            help=RESP_HELP,
+            "Slide toward the person who carries most of this mental work",
+            min_value=0, 
+            max_value=100, 
+            value=(default or {}).get("responsibility", 50),
             key=f"{task.id}_resp",
+            help="0 = Partner A does all of it, 50 = shared equally, 100 = Partner B does all of it",
+            label_visibility="collapsed"
         )
-        tiny_hint("If Partner A mostly leads, ~20–30. If Partner B mostly leads, ~70–80.")
-    with col2:
+        
+        # Visual label
+        if responsibility < 30:
+            st.caption("← Partner A handles most of this")
+        elif responsibility > 70:
+            st.caption("Partner B handles most of this →")
+        else:
+            st.caption("↔️ Shared fairly evenly")
+        
+        st.markdown("")
+        
+        # 2. Burden
+        st.markdown("**2. How mentally draining is this task?**")
+        st.caption("For whoever mainly handles it - how heavy does it feel?")
         burden = st.slider(
-            BURDEN_LABEL,
-            min_value=1, max_value=5, value=(default or {}).get("burden", 3),
-            help=BURDEN_HELP,
+            "Burden level",
+            min_value=1, 
+            max_value=5, 
+            value=(default or {}).get("burden", 3),
             key=f"{task.id}_burden",
+            help="1 = Easy/light, 5 = Very draining",
+            label_visibility="collapsed"
         )
-    with col3:
+        
+        # Visual feedback
+        burden_labels = {1: "😌 Light", 2: "🙂 Manageable", 3: "😐 Moderate", 4: "😓 Heavy", 5: "😰 Very draining"}
+        st.caption(burden_labels.get(burden, ""))
+        
+        st.markdown("")
+        
+        # 3. Fairness
+        st.markdown("**3. Does this feel fair right now?**")
+        st.caption("Your gut feeling - not what 'should' be fair, but how it actually feels")
         fairness = st.slider(
-            FAIRNESS_LABEL,
-            min_value=1, max_value=5, value=(default or {}).get("fairness", 3),
-            help=FAIRNESS_HELP,
+            "Fairness feeling",
+            min_value=1, 
+            max_value=5, 
+            value=(default or {}).get("fairness", 3),
             key=f"{task.id}_fair",
+            help="1 = Very unfair, 5 = Completely fair",
+            label_visibility="collapsed"
         )
-    with col4:
+        
+        # Visual feedback
+        fairness_labels = {1: "😞 Feels unfair", 2: "😕 Not quite fair", 3: "😐 Neutral", 4: "🙂 Pretty fair", 5: "😊 Feels fair"}
+        st.caption(fairness_labels.get(fairness, ""))
+    
+    with col2:
+        st.markdown("**Not relevant?**")
         not_applicable = st.checkbox(
-            "N/A",
+            "Skip this task",
             value=(default or {}).get("not_applicable", False),
             key=f"{task.id}_na",
+            help="Check this if this task doesn't apply to your household"
         )
-
+    
     return {
         "task_id": task.id,
         "responsibility": responsibility,
@@ -106,14 +143,15 @@ def _task_response_block(task, default=None):
         "not_applicable": not_applicable,
     }
 
-# --------- Main screen (chunked by pillar; same flow, gentler copy) ---------
+
+# --------- Main screen ---------
 def screen_questionnaire():
-    # Persist chunked flow
+    # Initialize state
     st.session_state.setdefault("q_pillar_index", 0)
     st.session_state.setdefault("responses", [])
     st.session_state.setdefault("notes_by_section", {})
 
-    # Context → which tasks to show
+    # Get context
     children = st.session_state.get("children", 0)
     household_type = st.session_state.get("household_type", "couple")
     is_emp_me = st.session_state.get("is_employed_me", True)
@@ -123,82 +161,124 @@ def screen_questionnaire():
     tasks = get_filtered_tasks(children, both_employed)
     groups = group_by_pillar(tasks)
 
-    # Fixed pillar order first, then any extras
+    # Pillar order
     ordered = ["anticipation", "identification", "decision", "monitoring", "emotional"]
     pillar_keys: List[str] = [k for k in ordered if k in groups] + [k for k in groups.keys() if k not in ordered]
 
-    # Header + progress + helpers (unchanged structure)
+    # Progress
     total_sections = len(pillar_keys)
     i = st.session_state.q_pillar_index
     progress = int((i / max(total_sections, 1)) * 100)
 
-    step_header(
-        "Household Questionnaire",
-        "Talk it through together. Take your time. You can pause and return any time.",
-        progress=progress,
-    )
-    learn_popover()
-    safety_note()
+    # Header
+    st.title("📝 Household Questionnaire")
+    st.caption(f"Section {i+1} of {total_sections} • Talk it through together as you go")
+    st.progress(progress)
+    
+    # Top navigation
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col1:
+        if st.button("🏠 Home", use_container_width=True):
+            st.session_state.stage = "home"
+            st.rerun()
+    with col2:
+        learn_popover()
+    with col3:
+        if st.button("💾 Save & Exit", use_container_width=True):
+            st.info("Your progress is saved in this session. You can return anytime before closing the browser.")
+            st.session_state.stage = "home"
+            st.rerun()
+
+    st.markdown("---")
 
     if not pillar_keys:
         st.warning("No tasks available for your context. Try adjusting Setup.")
         if st.button("← Back to Setup"):
             st.session_state.stage = "setup"
+            st.rerun()
         return
 
-    # Current section
+    # Current pillar
     pillar = pillar_keys[i]
-    label = PILLAR_LABELS.get(pillar, pillar.capitalize())
-    st.markdown(f"#### {label}")
-    if PILLAR_HINTS.get(pillar):
-        st.caption(PILLAR_HINTS[pillar])
-
-    # Render tasks in this section (preserving previous answers)
+    pillar_info = PILLAR_INTRO.get(pillar, {})
+    
+    # Pillar introduction (research-grounded)
+    st.markdown(f"## {pillar_info.get('title', pillar.capitalize())}")
+    
+    with st.expander("🎓 Why we're asking about this", expanded=(i == 0)):
+        st.markdown(f"**What research shows:** {pillar_info.get('research', '')}")
+        st.markdown(f"**What it means:** {pillar_info.get('what_it_means', '')}")
+        st.markdown(f"**Example:** {pillar_info.get('example', '')}")
+    
+    st.markdown("---")
+    
+    # Gentle reminder
+    if i == 0:
+        st.info("💙 **Remember:** There are no right answers. Just your honest experience right now. Take breaks if you need them.")
+    
+    # Tasks in this section
     section_tasks = groups[pillar]
+    st.markdown(f"### {len(section_tasks)} tasks in this section")
+    st.caption("For each task, answer together. It's okay to disagree - note different perspectives at the bottom.")
+    
+    st.markdown("---")
+    
+    # Render tasks
     updated = []
-    for t in section_tasks:
+    for idx, t in enumerate(section_tasks, 1):
+        st.markdown(f"#### Task {idx} of {len(section_tasks)}")
         prev = next((r for r in st.session_state.responses if r["task_id"] == t.id), None)
-        resp = _task_response_block(t, default=prev)
+        resp = _render_task_card(t, default=prev)
         updated.append(resp)
-        st.divider()
+        st.markdown("---")
 
-    # Merge updates into responses
+    # Merge updates
     other = [r for r in st.session_state.responses if r["task_id"] not in {t.id for t in section_tasks}]
     st.session_state.responses = other + updated
 
-    # Notes for this section (kept; same spot)
+    # Notes for this section
+    st.markdown("### 📝 Notes for this section (optional)")
+    st.caption("Different perspectives? Something that felt particularly heavy? An idea to try? Jot it down.")
+    
     note_key = f"notes_{pillar}"
     existing_note = st.session_state.notes_by_section.get(pillar, "")
-    st.session_state.notes_by_section[pillar] = section_notes(
+    
+    new_note = st.text_area(
+        "Your notes:",
+        value=existing_note,
+        height=100,
+        placeholder="E.g., 'Partner A didn't realize Partner B was tracking all the meal planning' or 'We both want to try meal-prepping on Sundays'",
         key=note_key,
-        placeholder="Different views? What felt heavy? Any small idea to try this week?",
-    ) or existing_note
+        help="These notes stay in your browser session and can be exported with your results."
+    )
+    st.session_state.notes_by_section[pillar] = new_note
 
-    # Nav controls (unchanged behavior)
+    # Navigation
+    st.markdown("---")
+    st.markdown("### Ready to continue?")
+    
     colA, colB, colC = st.columns([1, 1, 2])
     with colA:
-        if st.button("⬅️ Back", disabled=(i == 0)):
+        if st.button("⬅️ Previous Section", disabled=(i == 0), use_container_width=True):
             if i > 0:
                 st.session_state.q_pillar_index = i - 1
                 st.rerun()
     with colB:
         if i < total_sections - 1:
-            if st.button("Next ➡️"):
+            if st.button("Next Section ➡️", use_container_width=True, type="primary"):
                 st.session_state.q_pillar_index = i + 1
                 st.rerun()
         else:
-            if st.button("Finish & See Results"):
+            if st.button("See Results →", use_container_width=True, type="primary"):
                 if not st.session_state.responses:
                     st.warning("Please answer at least one task first.")
                 else:
+                    st.session_state.results_prep_seen = False  # Force showing prep screen
                     st.session_state.stage = "results"
-
-    # Secondary actions
-    st.markdown("---")
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("🏠 Home"):
-            st.session_state.stage = "home"
-    with c2:
-        if st.button("📘 Learn more"):
-            st.session_state.stage = "learn_more"
+                    st.rerun()
+    
+    with colC:
+        # Progress indicator
+        completed = sum(1 for r in st.session_state.responses if not r.get("not_applicable", False))
+        total_tasks = len(tasks)
+        st.caption(f"📊 Progress: {completed} of {total_tasks} tasks completed")
