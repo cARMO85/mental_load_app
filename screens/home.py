@@ -14,7 +14,7 @@ def screen_home():
     </div>
     """, unsafe_allow_html=True)
     
-    # Quick value props (visual cards)
+    # Quick value props (visual cards) - ORIGINAL GRADIENTS
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -55,15 +55,15 @@ def screen_home():
     
     st.markdown("<div style='margin: 50px 0 40px;'></div>", unsafe_allow_html=True)
     
-    # How it works - SIMPLE
+    # How it works - PROFESSIONAL VERSION
     st.markdown("""
     <div style='text-align: center; margin-bottom: 30px;'>
-        <h2 style='font-size: 2rem; font-weight: 700; margin-bottom: 10px;'>Three steps, 20 minutes</h2>
-        <p style='font-size: 1.1rem; color: #64748b;'>Do it together. Take breaks if you need them.</p>
+        <h2 style='font-size: 2rem; font-weight: 700; margin-bottom: 10px;'>How It Works</h2>
+        <p style='font-size: 1.1rem; color: #64748b;'>Three steps, approximately 20 minutes</p>
     </div>
     """, unsafe_allow_html=True)
     
-    # Three steps - VISUAL
+    # Three steps - ORIGINAL CIRCLES
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -72,9 +72,9 @@ def screen_home():
             <div style='width: 60px; height: 60px; background: #3b82f6; color: white; border-radius: 50%; 
                         display: flex; align-items: center; justify-content: center; font-size: 1.5rem; 
                         font-weight: bold; margin: 0 auto 15px;'>1</div>
-            <h3 style='font-size: 1.1rem; margin-bottom: 8px;'>Answer together</h3>
+            <h3 style='font-size: 1.1rem; margin-bottom: 8px;'>Answer Together</h3>
             <p style='color: #64748b; font-size: 0.9rem; margin: 0;'>
-                10-15 min questionnaire about household tasks
+                Rate 20-25 household tasks on responsibility, burden, and fairness
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -85,9 +85,9 @@ def screen_home():
             <div style='width: 60px; height: 60px; background: #8b5cf6; color: white; border-radius: 50%; 
                         display: flex; align-items: center; justify-content: center; font-size: 1.5rem; 
                         font-weight: bold; margin: 0 auto 15px;'>2</div>
-            <h3 style='font-size: 1.1rem; margin-bottom: 8px;'>See your results</h3>
+            <h3 style='font-size: 1.1rem; margin-bottom: 8px;'>Review Results</h3>
             <p style='color: #64748b; font-size: 0.9rem; margin: 0;'>
-                5-page journey through your household patterns
+                Navigate through five pages of personalised insights
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -98,16 +98,30 @@ def screen_home():
             <div style='width: 60px; height: 60px; background: #10b981; color: white; border-radius: 50%; 
                         display: flex; align-items: center; justify-content: center; font-size: 1.5rem; 
                         font-weight: bold; margin: 0 auto 15px;'>3</div>
-            <h3 style='font-size: 1.1rem; margin-bottom: 8px;'>Pick one experiment</h3>
+            <h3 style='font-size: 1.1rem; margin-bottom: 8px;'>Provide Feedback</h3>
             <p style='color: #64748b; font-size: 0.9rem; margin: 0;'>
-                Agree on one small change to try for a week
+                Complete a brief survey about your experience
             </p>
         </div>
         """, unsafe_allow_html=True)
     
     st.markdown("<div style='margin: 60px 0 40px;'></div>", unsafe_allow_html=True)
     
-    # Key promises - SCANNABLE
+    # NEW: Research context section
+    st.markdown("## About This Research")
+    st.info("""
+    **Study Purpose:** This tool is being developed as part of a Master's thesis to explore 
+    whether digital interventions can facilitate productive dialogue about household cognitive labour.
+    
+    **What We're Testing:** Whether this tool helps couples understand and discuss mental load, 
+    not whether it measures or reduces mental load itself.
+    
+    **Your Role:** By participating, you're helping evaluate the tool's usability and effectiveness.
+    """)
+    
+    st.markdown("<div style='margin: 40px 0;'></div>", unsafe_allow_html=True)
+    
+    # Key promises - ORIGINAL BOXES
     col1, col2 = st.columns(2)
     
     with col1:
@@ -138,7 +152,16 @@ def screen_home():
     
     st.markdown("<div style='margin: 60px 0 30px;'></div>", unsafe_allow_html=True)
     
-    # Pause warning - VISIBLE
+    # NEW: Important notes section
+    st.warning("""
+    **Please Note:**
+    - This is a research tool, not a clinical instrument
+    - Not a substitute for couples therapy or counselling
+    - Results are based on your subjective perceptions
+    - Pause if discussions become difficult
+    """)
+    
+    # Pause warning - ORIGINAL
     st.warning("""
     ⏸️ **Pause if either of you is tired, stressed, or hungry right now.** This works best when you're both in a good headspace.
     """)
@@ -148,38 +171,43 @@ def screen_home():
     # CTA - BIG button
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("Start now →", use_container_width=True, type="primary"):
+        if st.button("Begin Study →", use_container_width=True, type="primary"):
             st.session_state.stage = "consent"
             st.rerun()
         st.caption("20 minutes together • No data stored • Research-based")
     
     st.markdown("<div style='margin: 60px 0 20px;'></div>", unsafe_allow_html=True)
     
-    # Details in expanders - OPTIONAL reading
+    # NEW: Research details and eligibility in expanders
     col1, col2 = st.columns(2)
     
     with col1:
-        with st.expander("🎓 The research behind this"):
+        with st.expander("🎓 Research Information"):
             st.markdown("""
-            Based on academic research on household cognitive labour:
+            **Researcher:** Paul Carmody
+            **Institution:** University of Northumbria
+            **Programme:** Master's in Computer Science with Data Analytics
+            **Supervisor:** Dr. Naveed Anwar
+
+            This study has received ethical approval.
             
-            - **Daminger (2019)**: Four dimensions of mental work
-            - **Dean et al. (2022)**: Mental load and emotional labour
-            - **Barigozzi et al. (2025)**: Fairness perceptions matter
-            
-            Developed for a Master's thesis at a Danish university.
+            **Based on academic research:**
+            - Daminger (2019): Cognitive dimensions of household labour
+            - Hart & Staveland (1988): NASA-TLX workload assessment
+            - Dean et al. (2022): Mental load and emotional labour
             """)
     
     with col2:
-        with st.expander("❓ Who is this for?"):
+        with st.expander("❓ Who Can Participate?"):
             st.markdown("""
-            **Best for:**
-            - Couples living together
-            - Partners ready for honest conversation
-            - Households where one person feels overwhelmed
+            **Inclusion Criteria:**
+            - Cohabiting couples (any gender)
+            - Both partners present and consenting
+            - Able to complete in English
+            - Access to computer/tablet
             
-            **Not a substitute for:**
-            - Couples therapy
-            - Relationship counselling
-            - Crisis intervention
+            **Not Suitable For:**
+            - Couples in crisis
+            - Those seeking clinical intervention
+            - Single-person households
             """)

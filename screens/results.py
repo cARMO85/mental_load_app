@@ -58,14 +58,29 @@ def _plain_reason(raw: str) -> str:
     return s
 
 def _reason_to_question(reasons: str) -> str:
-    """Convert reasons into conversation questions"""
-    r = (reasons or "").lower()
-    if "lopsided" in r or "imbalance" in r or "handling most" in r:
-        return "How did this become one person's responsibility? Was it a deliberate choice?"
-    if "doesn't feel fair" in r or "fairness" in r:
-        return "What would 'fair' look like to each of you for this task?"
-    if "heavy" in r or "burden" in r or "draining" in r:
-        return "What makes this task feel so heavy? Could part of it be shared or simplified?"
+    """Convert a hotspot reason string into a conversation question."""
+    if not reasons:
+        return "What's one small thing that might make this easier?"
+    
+    r_lower = reasons.lower()
+    
+    # Priority combo
+    if "priority" in r_lower and "imbalanced" in r_lower and "unfair" in r_lower:
+        return "This feels both imbalanced and unfair. What would need to change for it to feel better?"
+    
+    # Imbalance
+    if "imbalance" in r_lower or "handling most" in r_lower:
+        return "How did this pattern develop? Would a different split work better?"
+    
+    # High burden
+    if "draining" in r_lower or "burden" in r_lower:
+        return "What makes this feel so heavy? Is it the task itself or the mental energy around it?"
+    
+    # Fairness
+    if "fair" in r_lower:
+        return "What would make this feel fairer to both of you?"
+    
+    # Default
     return "What's one small thing that might make this easier?"
 
 def _add_notes_section(page_name: str):
@@ -79,7 +94,7 @@ def _add_notes_section(page_name: str):
         - When you close this browser tab, they're gone forever
         """)
         
-        # Initialize notes dict if it doesn't exist
+        # Initialise notes dict if it doesn't exist
         if "results_notes" not in st.session_state:
             st.session_state.results_notes = {}
         
@@ -158,14 +173,16 @@ def _export_csv(responses, results, hotspots):
     summary = pd.DataFrame(
         {
             "Metric": [
-                "Partner A load (0–100)",
-                "Partner B load (0–100)",
+                "Partner A burden (0–100)",
+                "Partner B burden (0–100)",
                 "Partner A invisible share (%)",
                 "Partner B invisible share (%)",
             ],
             "Value": [
-                results["my_intensity"],
-                results["partner_intensity"],
+                # Backwards-compatible: some compute() implementations return
+                # `my_burden`/`partner_burden`, newer ones return `my_intensity`/`partner_intensity`.
+                results.get("my_burden", results.get("my_intensity", 0)),
+                results.get("partner_burden", results.get("partner_intensity", 0)),
                 results["my_share_pct"],
                 results["partner_share_pct"],
             ],
@@ -181,12 +198,23 @@ def _export_csv(responses, results, hotspots):
         hs_rows = [{"Task": h.get("task", ""), "Why it matters": _plain_reason(h.get("reasons", "")), "Question to discuss": _reason_to_question(h.get("reasons", ""))} for h in hotspots]
         csv += "\n\nCONVERSATION STARTERS\n" + pd.DataFrame(hs_rows).to_csv(index=False)
 
-    # Include conversation notes if any exist
-    notes = st.session_state.get("results_notes", {})
-    if any(v.strip() for v in notes.values()):
-        csv += "\n\nYOUR CONVERSATION NOTES\n"
+    # Include QUESTIONNAIRE section notes (from when they filled it in)
+    questionnaire_notes = st.session_state.get("notes_by_section", {})
+    if any(v.strip() for v in questionnaire_notes.values()):
+        csv += "\n\nQUESTIONNAIRE SECTION NOTES\n"
         notes_rows = []
-        for page, note in notes.items():
+        for section, note in questionnaire_notes.items():
+            if note.strip():
+                notes_rows.append({"Section": section, "Notes": note.strip()})
+        if notes_rows:
+            csv += pd.DataFrame(notes_rows).to_csv(index=False)
+
+    # Include RESULTS conversation notes (from results pages)
+    results_notes = st.session_state.get("results_notes", {})
+    if any(v.strip() for v in results_notes.values()):
+        csv += "\n\nRESULTS CONVERSATION NOTES\n"
+        notes_rows = []
+        for page, note in results_notes.items():
             if note.strip():
                 notes_rows.append({"Page": page, "Notes": note.strip()})
         if notes_rows:
@@ -209,7 +237,7 @@ def screen_before_results():
     
     st.markdown("### 🎓 What Research Tells Us")
     st.info("""
-    **Mental load** (also called cognitive labor) is the invisible work of managing a household: 
+    **Mental load** (also called cognitive labour) is the invisible work of managing a household: 
     anticipating needs, making decisions, tracking details, and coordinating family life.
     
     Research consistently shows:
@@ -286,14 +314,14 @@ def _results_page_1_share(results, hotspots):
     
     with st.expander("📖 Click to read about mental load patterns in households"):
         st.markdown("""
-        Studies of household labor consistently find:
+        Studies of household labour consistently find:
         
         - **Visible vs. Invisible Split:** Even when couples split physical tasks evenly, the invisible work 
           (planning, remembering, coordinating) is often held by one partner
         - **The "Manager-Helper" Dynamic:** One partner acts as the household manager who delegates, 
           while the other helps when asked - but doesn't carry the mental burden of anticipating needs
         - **Gendered Patterns:** In heterosexual couples, research shows women typically carry 2-3x 
-          more cognitive labor, regardless of employment status
+          more cognitive labour, regardless of employment status
         - **Why It Matters:** Unacknowledged mental load is strongly linked to resentment, burnout, 
           and relationship dissatisfaction
         - **Good News:** Simply naming and discussing mental load improves outcomes, even before changes are made
@@ -351,18 +379,20 @@ def _results_page_2_burden(results):
     - Carrying responsibility without recognition
     """)
     
-    a_int, b_int = results["my_intensity"], results["partner_intensity"]
-    st.plotly_chart(comparison_bars(a_int, b_int, 100, "Partner A", "Partner B"), use_container_width=True)
+    # Support older and newer keys: prefer explicit burden if present, otherwise use intensity
+    a_burden = results.get("my_burden", results.get("my_intensity", 0))
+    b_burden = results.get("partner_burden", results.get("partner_intensity", 0))
+    st.plotly_chart(comparison_bars(a_burden, b_burden, 100, "Partner A", "Partner B"), use_container_width=True)
     
     # Research context
-    load_diff = abs(a_int - b_int)
-    if load_diff <= 15:
+    burden_diff = abs(a_burden - b_burden)
+    if burden_diff <= 15:
         st.success("Both partners report similar burden levels - this suggests the mental energy feels fairly distributed.")
-    elif load_diff <= 30:
-        heavier = "Partner A" if a_int > b_int else "Partner B"
+    elif burden_diff <= 30:
+        heavier = "Partner A" if a_burden > b_burden else "Partner B"
         st.info(f"📊 {heavier} reports feeling more burdened. This is worth exploring - sometimes visible task-sharing doesn't capture invisible stress.")
     else:
-        heavier = "Partner A" if a_int > b_int else "Partner B"
+        heavier = "Partner A" if a_burden > b_burden else "Partner B"
         st.warning(f"⚠️ {heavier}'s burden score is notably higher. Research links sustained high burden to burnout and relationship strain.")
     
     # Discussion prompt
@@ -390,23 +420,23 @@ def _results_page_3_pillars(results):
     
     st.markdown("## 🏛️ The Five Pillars of Mental Load")
     st.markdown("""
-    Research identifies five types of cognitive labor in households. This chart shows which 
+    Research identifies five types of cognitive labour in households. This chart shows which 
     partner is carrying more of each type.
     """)
     
     with st.expander("ℹ️ What these five pillars mean (click to expand)"):
         st.markdown("""
-        Based on research in household labor and emotional work:
+        Based on research in household labour and emotional work:
         
         - **Anticipation:** Thinking ahead to what will be needed (meal planning, remembering appointments, 
           anticipating when supplies run low)
-        - **Identification:** Noticing what needs doing (seeing the mess, recognizing when something's broken, 
+        - **Identification:** Noticing what needs doing (seeing the mess, recognising when something's broken, 
           spotting when someone needs support)
         - **Decision-Making:** Researching options and making choices (which doctor, what gift, how to handle 
           a situation)
         - **Monitoring:** Tracking progress and following up (did the form get submitted? Is the kids' project 
           done? Are we running low on groceries?)
-        - **Emotional Labor:** Managing feelings, maintaining relationships, providing support, creating 
+        - **Emotional Labour:** Managing feelings, maintaining relationships, providing support, creating 
           household harmony
         
         **Key finding:** The monitoring and anticipation pillars are often most invisible to the partner not doing them.
@@ -421,7 +451,7 @@ def _results_page_3_pillars(results):
     st.markdown("""
     **Questions to discuss together:**
     - Which pillar shows the biggest difference between you?
-    - Is there a pillar where one person didn't realize how much the other was doing?
+    - Is there a pillar where one person didn't realise how much the other was doing?
     - Research shows "monitoring" is often invisible - does that resonate?
     """)
     
@@ -431,9 +461,9 @@ def _results_page_3_pillars(results):
 
 
 def _results_page_4_hotspots(hotspots):
-    """Page 4: Conversation Starters"""
+    """Page 4: Conversation Starters - REDUCED TO TOP 5 ONLY"""
     st.title("📊 Conversation Starters")
-    st.caption("💙 Topics worth exploring together")
+    st.caption("💙 Focus on just a few key topics")
     st.progress(80)  # 4 of 5 pages
     
     st.markdown("---")
@@ -444,13 +474,18 @@ def _results_page_4_hotspots(hotspots):
     
     Research shows that couples who regularly discuss mental load (even without making immediate changes) 
     report higher satisfaction than those who don't talk about it.
+    
+    **We've focused on just the top few areas** to keep your conversation manageable and productive.
     """)
     
     if hotspots:
-        st.info(f"📌 We've identified {len(hotspots)} areas where responses suggest an imbalance, high burden, or fairness concern. Start with one.")
+        # LIMIT TO TOP 5 MAXIMUM
+        top_hotspots = hotspots[:5]
         
-        # Show top 3 as conversation starters
-        for i, h in enumerate(hotspots[:3], 1):
+        st.info(f"📌 We've identified {len(top_hotspots)} priority {'area' if len(top_hotspots) == 1 else 'areas'} to discuss. Pick one or two to start with.")
+        
+        # Show all selected hotspots fully expanded
+        for i, h in enumerate(top_hotspots, 1):
             with st.container():
                 st.markdown(f"### {i}. {h.get('task', 'Task')}")
                 
@@ -465,14 +500,9 @@ def _results_page_4_hotspots(hotspots):
                 
                 st.markdown("")
         
-        # Remaining in expander
-        if len(hotspots) > 3:
-            with st.expander(f"📋 See {len(hotspots) - 3} more conversation starters"):
-                for i, h in enumerate(hotspots[3:], 4):
-                    st.markdown(f"**{i}. {h.get('task', 'Task')}**")
-                    st.markdown(f"*{_plain_reason(h.get('reasons', ''))}*")
-                    st.markdown(f"💭 *{_reason_to_question(h.get('reasons', ''))}*")
-                    st.markdown("")
+        # Note about focusing on just a few
+        if len(hotspots) > 5:
+            st.info(f"💡 **Note:** There were {len(hotspots)} total areas flagged, but we're showing only the top 5 to help you focus. You can always revisit this tool to explore others later.")
     else:
         st.success("""
         🎉 **No major conversation starters detected!** 
@@ -523,7 +553,7 @@ def _results_page_5_action():
     # ====== EXPERIMENT ======
     st.markdown("## 🧪 Try One Small Experiment")
     st.markdown("""
-    Research on behavior change shows that small, time-bound experiments work better than big overhauls.
+    Research on behaviour change shows that small, time-bound experiments work better than big overhauls.
     
     **The invitation:** Pick ONE thing from your conversation starters. Agree to try a small change 
     for one week, then check in.
@@ -544,7 +574,7 @@ def _results_page_5_action():
     
     **Next steps:**
     - Add any final notes below
-    - Download your results (including all your notes)
+    - Download your results (including all your notes from questionnaire AND results)
     - Try your small experiment for one week
     - Check in together next weekend
     - Return to this tool in a month to see how things have shifted
@@ -569,7 +599,7 @@ def screen_results_main():
     results = calc.compute()
     hotspots = Calculator.detect_hotspots(response_objs)
 
-    # Initialize page if not set
+    # Initialise page if not set
     if "results_page" not in st.session_state:
         st.session_state.results_page = 1
     
@@ -608,11 +638,15 @@ def screen_results_main():
     elif current_page == 5:
         _results_page_5_action()
     
-    # Show note count if any notes exist
-    notes = st.session_state.get("results_notes", {})
-    note_count = sum(1 for v in notes.values() if v.strip())
-    if note_count > 0:
-        st.info(f"📝 You have notes on {note_count} page(s) - they'll be included in your export")
+    # Show note count if any notes exist (both questionnaire AND results notes)
+    questionnaire_notes = st.session_state.get("notes_by_section", {})
+    results_notes = st.session_state.get("results_notes", {})
+    questionnaire_note_count = sum(1 for v in questionnaire_notes.values() if v.strip())
+    results_note_count = sum(1 for v in results_notes.values() if v.strip())
+    total_note_count = questionnaire_note_count + results_note_count
+    
+    if total_note_count > 0:
+        st.info(f"📝 You have notes on {total_note_count} page(s) ({questionnaire_note_count} from questionnaire, {results_note_count} from results) - they'll be included in your export")
     
     # Navigation footer (always at bottom)
     st.markdown("---")
@@ -658,8 +692,7 @@ def screen_results():
     """Route to either prep screen or main results"""
     # First time seeing results? Show prep screen
     if not st.session_state.get("results_prep_seen", False):
-        screen_before_results()
         st.session_state.results_prep_seen = True
+        screen_before_results()
     else:
-        # They've seen prep, show paginated results
         screen_results_main()

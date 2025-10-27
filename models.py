@@ -12,6 +12,8 @@ class Task:
     pillar: str = "identification"    # or anticipation/decision/monitoring/emotional
     requires_children: bool = False
     requires_employment: bool = False
+    requires_pets: bool = False  
+    requires_vehicle: bool = False  
 
     # (all optional):
     definition: Optional[str] = None

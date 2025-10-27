@@ -1,6 +1,7 @@
 # screens/questionnaire.py
 import streamlit as st
 from typing import Dict, List
+from datetime import datetime
 
 from tasks import get_filtered_tasks, group_by_pillar
 from utils.ui import step_header, learn_popover, safety_note
@@ -68,7 +69,7 @@ def _render_task_card(task, default=None):
     col1, col2 = st.columns([3, 1])
     
     with col1:
-        # 1. Responsibility
+        # ========== QUESTION 1: RESPONSIBILITY (UNCHANGED) ==========
         st.markdown("**1. Who mainly handles this right now?**")
         responsibility = st.slider(
             "Slide toward the person who carries most of this mental work",
@@ -90,9 +91,25 @@ def _render_task_card(task, default=None):
         
         st.markdown("")
         
-        # 2. Burden
+        # ========== QUESTION 2: BURDEN (NEW EXPLICIT WORDING) ==========
         st.markdown("**2. How mentally draining is this task?**")
-        st.caption("For whoever mainly handles it - how heavy does it feel?")
+        
+        # Clarify whose burden to rate: the person who does most, or the typical experience if shared
+        st.caption(
+            "Please rate how mentally draining this task is for the person who does MOST of it (based on the slider). "
+            "If you share it evenly, rate the typical experience or the average burden."
+        )
+        
+        # Add visual guide based on responsibility slider
+        if responsibility < 40:
+            burden_caption = "Rate the burden experienced by Partner A (who handles most of this)"
+        elif responsibility > 60:
+            burden_caption = "Rate the burden experienced by Partner B (who handles most of this)"
+        else:
+            burden_caption = "Rate the typical/average burden when this is shared fairly evenly"
+        
+        st.caption(f"💭 *{burden_caption}*")
+        
         burden = st.slider(
             "Burden level",
             min_value=1, 
@@ -104,35 +121,62 @@ def _render_task_card(task, default=None):
         )
         
         # Visual feedback
-        burden_labels = {1: "😌 Light", 2: "🙂 Manageable", 3: "😐 Moderate", 4: "😓 Heavy", 5: "😰 Very draining"}
+        burden_labels = {
+            1: "😌 Light - barely think about it", 
+            2: "🙂 Manageable - takes some mental energy", 
+            3: "😐 Moderate - noticeable mental effort", 
+            4: "😓 Heavy - quite draining", 
+            5: "😰 Very draining - exhausting to manage"
+        }
         st.caption(burden_labels.get(burden, ""))
         
         st.markdown("")
         
-        # 3. Fairness
-        st.markdown("**3. Does this feel fair right now?**")
-        st.caption("Your gut feeling - not what 'should' be fair, but how it actually feels")
+        # ========== QUESTION 3: FAIRNESS (NEW EXPLICIT WORDING) ==========
+        st.markdown("**3. Does this current division feel fair to both of you?**")
+        
+        # NEW: Make fairness explicit and clarify what we're asking
+        st.caption(
+            "Even if one partner does more, it can still feel fair if both agree it makes sense. "
+            "Rate how fair this current arrangement feels."
+        )
+        
         fairness = st.slider(
-            "Fairness feeling",
+            "Fairness level",
             min_value=1, 
             max_value=5, 
             value=(default or {}).get("fairness", 3),
             key=f"{task.id}_fair",
-            help="1 = Very unfair, 5 = Completely fair",
+            help="1 = Very unfair, 5 = Very fair",
             label_visibility="collapsed"
         )
         
-        # Visual feedback
-        fairness_labels = {1: "😞 Feels unfair", 2: "😕 Not quite fair", 3: "😐 Neutral", 4: "🙂 Pretty fair", 5: "😊 Feels fair"}
+        # Visual feedback with examples
+        fairness_labels = {
+            1: "😠 Very unfair - this really bothers us",
+            2: "😕 Somewhat unfair - could be better",
+            3: "😐 Neutral - it's okay for now",
+            4: "🙂 Mostly fair - we're both comfortable with this",
+            5: "😊 Very fair - we both feel good about how this is split"
+        }
         st.caption(fairness_labels.get(fairness, ""))
+        
+        # Add helpful context
+        st.caption(
+            "💡 *Example: Partner A might do 80% of meal planning (high responsibility) "
+            "but both partners think it's fair because Partner A enjoys it and Partner B "
+            "handles other tasks. That would be rated 4-5 in fairness.*"
+        )
+        
+        st.markdown("")
     
     with col2:
-        st.markdown("**Not relevant?**")
+        # Not applicable checkbox
         not_applicable = st.checkbox(
-            "Skip this task",
+            "This doesn't apply to us",
             value=(default or {}).get("not_applicable", False),
             key=f"{task.id}_na",
-            help="Check this if this task doesn't apply to your household"
+            help="Check this if this task is not relevant to your household"
         )
     
     return {
@@ -144,12 +188,18 @@ def _render_task_card(task, default=None):
     }
 
 
+
+
 # --------- Main screen ---------
 def screen_questionnaire():
     # Initialize state
     st.session_state.setdefault("q_pillar_index", 0)
     st.session_state.setdefault("responses", [])
     st.session_state.setdefault("notes_by_section", {})
+    
+    # Track start time (use .get to avoid KeyError if state wasn't initialised)
+    if st.session_state.get('questionnaire_start_time') is None:
+        st.session_state['questionnaire_start_time'] = datetime.now()
 
     # Get context
     children = st.session_state.get("children", 0)
@@ -158,7 +208,11 @@ def screen_questionnaire():
     is_emp_partner = st.session_state.get("is_employed_partner", True) if household_type == "couple" else False
     both_employed = (is_emp_me and is_emp_partner) if household_type == "couple" else is_emp_me
 
-    tasks = get_filtered_tasks(children, both_employed)
+    # Context flags (set in the Setup screen)
+    has_pets = st.session_state.get('has_pets', False)
+    has_vehicle = st.session_state.get('has_vehicle', False)
+
+    tasks = get_filtered_tasks(children, both_employed, has_pets, has_vehicle)
     groups = group_by_pillar(tasks)
 
     # Pillar order
@@ -185,7 +239,7 @@ def screen_questionnaire():
         learn_popover()
     with col3:
         if st.button("💾 Save & Exit", use_container_width=True):
-            st.info("Your progress is saved in this session. You can return anytime before closing the browser.")
+            st.info("Your progress is saved in this session. You can return any time before closing the browser.")
             st.session_state.stage = "home"
             st.rerun()
 
@@ -247,7 +301,7 @@ def screen_questionnaire():
         "Your notes:",
         value=existing_note,
         height=100,
-        placeholder="E.g., 'Partner A didn't realize Partner B was tracking all the meal planning' or 'We both want to try meal-prepping on Sundays'",
+        placeholder="E.g., 'Partner A didn't realise Partner B was tracking all the meal planning' or 'We both want to try meal-prepping on Sundays'",
         key=note_key,
         help="These notes stay in your browser session and can be exported with your results."
     )
@@ -273,7 +327,13 @@ def screen_questionnaire():
                 if not st.session_state.responses:
                     st.warning("Please answer at least one task first.")
                 else:
-                    st.session_state.results_prep_seen = False  # Force showing prep screen
+                    # Calculate completion time
+                    start = st.session_state.get('questionnaire_start_time')
+                    if start:
+                        completion_time = (datetime.now() - start).total_seconds()
+                        st.session_state['completion_time_seconds'] = completion_time
+                    
+                    st.session_state.results_prep_seen = False
                     st.session_state.stage = "results"
                     st.rerun()
     

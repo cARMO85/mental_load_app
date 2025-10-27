@@ -8,11 +8,14 @@ def init_state():
         children=0,
         is_employed_me=True,
         is_employed_partner=True,
+        has_pets=False, 
+        has_vehicle=False, 
         # questionnaire progress
         q_section_index=0,
         q_task_index=0,
-        responses=[],              # list of dicts {task_id, responsibility, burden, fairness, not_applicable}
-        notes_by_section={},       # pillar -> str
+        responses=[],
+        notes_by_section={},
+        questionnaire_start_time=None,
     )
     for k,v in defaults.items():
         if k not in st.session_state:

@@ -1,9 +1,19 @@
-# tasks.py - EXPANDED VERSION
+"""
+tasks.py
+
+This module defines the full list of household tasks used by the Mental Load Helper.
+I've expanded and annotated the task catalogue so it can be filtered by household
+context (children, pets, vehicles, employment status) and grouped by pillar.
+
+Do not change task IDs casually — they're used as stable keys in session state and
+CSV exports.
+"""
+
 from typing import List, Dict
 from models import Task
 
 TASKS: list[Task] = [
-    # ========== ANTICIPATION PILLAR ==========
+    # Anticipation pillar — tasks that involve planning and thinking ahead
     
     Task(
         id="meal_planning",
@@ -41,6 +51,24 @@ TASKS: list[Task] = [
     ),
     
     Task(
+    id="holiday_planning",
+    name="Holiday & vacation planning",
+    pillar="anticipation",
+    definition=(
+        "Planning family holidays and vacations - researching, booking, and coordinating all the details."
+    ),
+    what_counts=[
+        "Researching holiday destinations and accommodation",
+        "Booking flights, hotels, activities",
+        "Planning itineraries and packing lists",
+        "Coordinating time off work and school holidays",
+        "Managing travel documents (passports, visas, insurance)",
+    ],
+    example="If one partner does most of the holiday research and booking, Responsibility ~80-100.",
+),
+
+    
+    Task(
         id="birthday_gifts",
         name="Gifts, cards & social obligations",
         pillar="anticipation",
@@ -72,7 +100,7 @@ TASKS: list[Task] = [
         example="If one partner does most of the forward-thinking, Responsibility ~70-90.",
     ),
     
-    # ========== IDENTIFICATION PILLAR ==========
+    # Identification pillar — visible tasks and noticing what needs doing
     
     Task(
         id="cooking",
@@ -157,8 +185,24 @@ TASKS: list[Task] = [
         ],
         example="If one partner notices and coordinates all repairs, Responsibility ~80-100.",
     ),
-    
-    # ========== DECISION PILLAR ==========
+    Task(
+    id="pet_care",
+    name="Pet care & management",
+    pillar="identification",
+    requires_pets=True,  # conditional flag: only include when household has pets
+    definition=(
+        "Daily pet care and the mental load of remembering vet appointments, food, medication, and pet needs."
+    ),
+    what_counts=[
+        "Feeding, walking, grooming pets",
+        "Remembering vet appointments and vaccinations",
+        "Noticing when pet food or supplies are running low",
+        "Coordinating pet care when away from home",
+        "Managing pet health issues and medication",
+    ],
+    example="If one partner manages all pet schedules and needs, Responsibility ~80-100.",
+),
+    # Decision pillar — tasks that require choosing, organising or deciding
     
     Task(
         id="bills_admin",
@@ -226,8 +270,25 @@ TASKS: list[Task] = [
         ],
         example="If one partner researches and enrolls children in activities, Responsibility ~80-100.",
     ),
-    
-    # ========== MONITORING PILLAR ==========
+    Task(
+    id="tech_troubleshooting",
+    name="Tech support & troubleshooting",
+    pillar="decision",
+    definition=(
+        "Being the household tech support - fixing issues, managing devices, and keeping digital life running."
+    ),
+    what_counts=[
+        "Fixing wifi/computer/phone problems",
+        "Managing subscriptions and accounts (Netflix, utilities apps, etc.)",
+        "Setting up new devices and software",
+        "Troubleshooting when tech doesn't work",
+        "Managing passwords, security, backups",
+        "Being the person everyone asks when tech breaks",
+    ],
+    note="This is executive function work - requires problem-solving and staying calm under pressure.",
+    example="If one partner is the default tech troubleshooter, Responsibility ~70-100.",
+),
+    # Monitoring pillar — keeping track, following up, and coordinating
     
     Task(
         id="kids_school",
@@ -312,8 +373,25 @@ TASKS: list[Task] = [
         ],
         example="If one partner does most of the 'work schedule tetris', Responsibility ~70-90.",
     ),
-    
-    # ========== EMOTIONAL PILLAR ==========
+    Task(
+    id="vehicle_maintenance",
+    name="Car/vehicle maintenance",
+    pillar="monitoring",
+    requires_vehicle=True,  # conditional flag: only include when household has a vehicle
+    definition=(
+        "Tracking car servicing, MOT, insurance, and ensuring the vehicle stays roadworthy."
+    ),
+    what_counts=[
+        "Remembering MOT and service due dates",
+        "Booking and arranging car maintenance",
+        "Managing car insurance renewals",
+        "Noticing when car needs attention (tyres, fluids, issues)",
+        "Coordinating repairs and dealing with mechanics",
+    ],
+    example="If one partner tracks and arranges all vehicle maintenance, Responsibility ~80-100.",
+),
+
+    # Emotional pillar — the emotional and relational work that keeps a home well
     
     Task(
         id="kids_emotional",
@@ -400,15 +478,33 @@ TASKS: list[Task] = [
 
 TASK_LOOKUP: Dict[str, Task] = {t.id: t for t in TASKS}
 
-def get_filtered_tasks(children: int, both_employed: bool) -> List[Task]:
+def get_filtered_tasks(children: int, both_employed: bool, has_pets: bool, has_vehicle: bool) -> List[Task]:
+    """
+    Filter tasks based on household context.
+    
+    Args:
+        children: Number of children
+        both_employed: Whether both partners are employed
+        has_pets: Whether household has pets
+        has_vehicle: Whether household has a car/vehicle
+    """
     out: List[Task] = []
     for t in TASKS:
+        # Skip child-related tasks if no children
         if t.requires_children and children <= 0:
             continue
+        # Skip employment tasks if not both employed
         if t.requires_employment and not both_employed:
+            continue
+        # Skip pet tasks if no pets
+        if t.requires_pets and not has_pets:
+            continue
+        # Skip vehicle tasks if no vehicle
+        if t.requires_vehicle and not has_vehicle:
             continue
         out.append(t)
     return out
+
 
 def group_by_pillar(tasks: List[Task]) -> Dict[str, List[Task]]:
     d: Dict[str, List[Task]] = {}

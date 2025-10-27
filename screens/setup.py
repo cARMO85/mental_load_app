@@ -3,7 +3,7 @@ from tasks import get_filtered_tasks
 
 def screen_setup():
     st.header("Household context (for couples)")
-    st.caption("We ask only what’s needed to tailor the questionnaire.")
+    st.caption("We ask only what's needed to tailor the questionnaire.")
 
     c1,c2,c3 = st.columns([2,1,1])
     with c1:
@@ -14,9 +14,22 @@ def screen_setup():
     with c3:
         st.session_state.is_employed_partner = st.checkbox("Partner B employed?", value=st.session_state.is_employed_partner)
 
+    # Add pet and vehicle questions
+    c4, c5 = st.columns(2)
+    with c4:
+        st.session_state.has_pets = st.checkbox("Do you have pets?", value=st.session_state.get('has_pets', False))
+    with c5:
+        st.session_state.has_vehicle = st.checkbox("Do you have a car/vehicle?", value=st.session_state.get('has_vehicle', False))
+
     both_employed = st.session_state.is_employed_me and st.session_state.is_employed_partner
-    filtered = get_filtered_tasks(st.session_state.children, both_employed)
-    st.success(f"{len(filtered)} items selected for your context. Child-related items only show if you have children; some work items only if both are employed.")
+    filtered = get_filtered_tasks(
+        st.session_state.children, 
+        both_employed,
+        st.session_state.get('has_pets', False),
+        st.session_state.get('has_vehicle', False)
+    )
+    
+    st.success(f"{len(filtered)} items selected for your context. Child-related items only show if you have children. Pet and vehicle tasks only show if relevant.")
 
     if st.button("Start questionnaire →", type="primary"):
         st.session_state.q_section_index = 0

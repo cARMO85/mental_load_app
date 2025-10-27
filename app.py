@@ -8,11 +8,9 @@ from screens.setup import screen_setup
 from screens.questionnaire import screen_questionnaire
 from screens.results import screen_results
 from screens.learnmore import screen_learn_more
-from utils.dev_mode import toggle_dev_mode, is_dev_mode, dev_mode_widget
+# Developer mode utilities removed for production build
 
-st.set_page_config(page_title="Mental Load Coach", page_icon="🧠", layout="wide")
-
-# ---- CSS ----
+st.set_page_config(page_title="Mental Load Coach", page_icon="🧠", layout="wide")# ---- CSS ----
 def load_css():
     css_path = Path("assets/style.css")
     if css_path.exists():
@@ -34,19 +32,7 @@ with st.sidebar:
         reset_state()
         st.session_state.stage = "home"
     
-    # Dev mode toggle at bottom
-    st.divider()
-    dev_mode_enabled = is_dev_mode()
-    if st.button(
-        f"{'🛠️ Dev Mode: ON' if dev_mode_enabled else '🔧 Dev Mode: OFF'}", 
-        use_container_width=True,
-        type="primary" if dev_mode_enabled else "secondary"
-    ):
-        toggle_dev_mode()
-        st.rerun()
-    
-    # Show dev controls if enabled
-    dev_mode_widget()
+    # Developer tools removed in production
     
     st.caption("You can return here at any time.")
 
