@@ -24,7 +24,6 @@ from screens.setup import screen_setup
 from screens.questionnaire import screen_questionnaire
 from screens.results import screen_results
 from screens.learnmore import screen_learn_more
-from utils.dev_mode import toggle_dev_mode, is_dev_mode, dev_mode_widget
 
 st.set_page_config(page_title="Mental Load Coach", page_icon="🧠", layout="wide")
 
@@ -35,39 +34,48 @@ def load_css():
         st.markdown(f"<style>{css_path.read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
 load_css()
 
-# ---- Init + sidebar nav ----
+# ---- Init ----
 init_state()
 
-with st.sidebar:
-    st.markdown("### Navigation")
-    if st.button("🏠 Home"):             st.session_state.stage = "home"
-    if st.button("✅ Consent"):          st.session_state.stage = "consent"
-    if st.button("⚙️ Setup"):           st.session_state.stage = "setup"
-    if st.button("📝 Questionnaire"):    st.session_state.stage = "questionnaire"
-    if st.button("📊 Results"):          st.session_state.stage = "results"
-    st.divider()
-    if st.button("🔁 Start again"):
-        reset_state()
-        st.session_state.stage = "home"
-    
-    # Dev mode toggle at bottom
-    st.divider()
-    dev_mode_enabled = is_dev_mode()
-    if st.button(
-        f"{'🛠️ Dev Mode: ON' if dev_mode_enabled else '🔧 Dev Mode: OFF'}", 
-        use_container_width=True,
-        type="primary" if dev_mode_enabled else "secondary"
-    ):
-        toggle_dev_mode()
-        st.rerun()
-    
-    # Show dev controls if enabled
-    dev_mode_widget()
-    
-    st.caption("You can return here at any time.")
+# ---- CONDITIONAL NAVIGATION (best practice: hide during conversion moments) ----
+stage = st.session_state.stage
+
+# Only show full navigation on non-critical stages
+if stage not in ["questionnaire", "results", "results_main"]:
+    with st.sidebar:
+        st.markdown("### Navigation")
+        if st.button("🏠 Home"):             st.session_state.stage = "home"
+        if st.button("✅ Consent"):          st.session_state.stage = "consent"
+        if st.button("⚙️ Setup"):           st.session_state.stage = "setup"
+        if st.button("📝 Questionnaire"):    st.session_state.stage = "questionnaire"
+        if st.button("📊 Results"):          st.session_state.stage = "results"
+        st.divider()
+        if st.button("🔁 Start again"):
+            reset_state()
+            st.session_state.stage = "home"
+        
+        st.caption("You can return here at any time.")
+else:
+    # Minimal sidebar during critical stages - just emergency exit
+    with st.sidebar:
+        st.markdown("### 🧠 Mental Load Coach")
+        st.caption("Working through the questionnaire...")
+        st.markdown("---")
+        st.caption("⚠️ **Important:** Try to complete in one go for best results.")
+        st.markdown("")
+        if st.button("🚪 Exit & restart", type="secondary", use_container_width=True):
+            if st.session_state.get('confirm_exit', False):
+                reset_state()
+                st.session_state.stage = "home"
+                st.rerun()
+            else:
+                st.session_state.confirm_exit = True
+                st.warning("Click again to confirm - you'll lose your progress")
+        
+        if st.session_state.get('confirm_exit', False):
+            st.caption("☝️ Click exit button again to confirm")
 
 # ---- Router ----
-stage = st.session_state.stage
 if stage == "home":
     screen_home()
 elif stage == "consent":
@@ -181,7 +189,7 @@ class Calculator:
         b_pct = 100 - a_pct
         return a_pct, b_pct
 
-    def _intensity(self) -> Tuple[int,int]:
+    def _burden(self) -> Tuple[int,int]:
         # Map burden (1..5) to 20..100 and weight by share
         if not self.responses: return 0,0
         def scale(b): return 20*b
@@ -206,28 +214,106 @@ class Calculator:
 
     def compute(self) -> Dict:
         a_pct, b_pct = self._shares()
-        a_int, b_int = self._intensity()
+        a_burden, b_burden = self._burden()
         return dict(
             my_share_pct=a_pct, partner_share_pct=b_pct,
-            my_intensity=a_int, partner_intensity=b_int,
+            my_burden=a_burden, partner_burden=b_burden,
             pillar_scores=self.pillar_scores()
         )
 
     @staticmethod
     def detect_hotspots(responses: List[Response]) -> List[Dict]:
+        """
+        Detect areas worth exploring in conversation.
+        
+        UPDATED LOGIC:
+        - Responsibility imbalance (≥30 points from 50/50)
+        - High burden (≥4 on 1-5 scale)
+        - Low fairness (≤3 on 1-5 scale)
+        - NEW: Combined flag for imbalance + unfairness
+        """
         out = []
         for r in responses:
             reasons = []
-            if abs(r.responsibility - 50) >= 30:
-                reasons.append("Responsibility imbalance (≥30 pts)")
-            if r.burden >= 4:
-                reasons.append("High burden")
-            if r.fairness <= 2:
-                reasons.append("Low perceived fairness")
+            
+            # Check responsibility imbalance
+            responsibility_diff = abs(r.responsibility - 50)
+            is_imbalanced = responsibility_diff >= 30
+            
+            # Check burden level
+            is_high_burden = r.burden >= 4
+            
+            # Check fairness perception
+            is_low_fairness = r.fairness <= 3
+            
+            # Flag different combinations
+            if is_imbalanced:
+                reasons.append("One partner handles most of this")
+            
+            if is_high_burden:
+                reasons.append("This feels particularly draining")
+            
+            if is_low_fairness:
+                reasons.append("This doesn't feel fair to one or both partners")
+            
+            # NEW: Special flag for imbalance + unfairness combo
+            if is_imbalanced and is_low_fairness:
+                reasons.append("PRIORITY: Imbalanced AND feels unfair")
+            
+            # If any reasons flagged, add to hotspots
             if reasons:
-                out.append({"task": r.task.name, "reasons": ", ".join(reasons)})
+                out.append({
+                    "task": r.task.name,
+                    "task_id": r.task.id,
+                    "pillar": r.task.pillar,
+                    "reasons": " | ".join(reasons),
+                    "responsibility": r.responsibility,
+                    "burden": r.burden,
+                    "fairness": r.fairness,
+                    # Add priority score for sorting
+                    "priority": (
+                        (responsibility_diff if is_imbalanced else 0) +
+                        (r.burden * 10 if is_high_burden else 0) +
+                        ((6 - r.fairness) * 15 if is_low_fairness else 0)
+                    )
+                })
+        
+        # Sort by priority (highest first)
+        out.sort(key=lambda x: x.get("priority", 0), reverse=True)
+        
         return out
 
+
+# ==================================================
+# HELPER FUNCTION - Convert reasons to questions
+# ==================================================
+def hotspot_to_question(reason: str) -> str:
+    """
+    Convert a hotspot reason into a conversation-starting question.
+    """
+    if not reason:
+        return "What's one small thing that might make this easier?"
+    
+    r_lower = reason.lower()
+    
+    # Priority combo
+    if "priority" in r_lower and "imbalanced" in r_lower and "unfair" in r_lower:
+        return "This feels both imbalanced and unfair. What would need to change for it to feel better?"
+    
+    # Imbalance
+    if "imbalance" in r_lower or "handling most" in r_lower:
+        return "How did this pattern develop? Would a different split work better?"
+    
+    # High burden
+    if "draining" in r_lower or "burden" in r_lower:
+        return "What makes this feel so heavy? Is it the task itself or the mental energy around it?"
+    
+    # Fairness
+    if "fair" in r_lower:
+        return "What would make this feel fairer to both of you?"
+    
+    # Default
+    return "What's one small thing that might make this easier?"
 ----
 models.py
 from pydantic import BaseModel
@@ -244,6 +330,8 @@ class Task:
     pillar: str = "identification"    # or anticipation/decision/monitoring/emotional
     requires_children: bool = False
     requires_employment: bool = False
+    requires_pets: bool = False  
+    requires_vehicle: bool = False  
 
     # (all optional):
     definition: Optional[str] = None
@@ -273,17 +361,94 @@ screens/consent.py
 import streamlit as st
 
 def screen_consent():
-    st.header("Before we start — a quick agreement")
-    st.write("This tool is for kind conversations, not blame. You can stop at any time.")
-
-    kind = st.checkbox("We agree to be kind and pause if it gets tough.")
-    consent = st.checkbox("We consent to answer and view results together.")
-
-    st.info("We don’t collect names or emails. Nothing is shared.")
-    disabled = not (kind and consent)
-    if st.button("Continue to setup →", disabled=disabled):
-        st.session_state.stage = "setup"
-
+    """Streamlined consent following layered information model - key info only"""
+    
+    # Clear, friendly header
+    st.markdown("""
+    <div style='text-align: center; margin-bottom: 30px;'>
+        <h1 style='font-size: 2.2rem; font-weight: 700; margin-bottom: 8px;'>Quick agreement</h1>
+        <p style='font-size: 1.1rem; color: #64748b;'>Two things to know before starting</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Two-column key info - SCANNABLE
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        <div style='background: #f0fdf4; border: 2px solid #86efac; border-radius: 12px; padding: 20px; height: 100%;'>
+            <h3 style='font-size: 1rem; margin-bottom: 12px; color: #166534;'>✅ What you'll do</h3>
+            <ul style='margin: 0; padding-left: 20px; color: #334155; font-size: 0.95rem;'>
+                <li style='margin-bottom: 6px;'><strong>10-15 minutes</strong> answering together</li>
+                <li style='margin-bottom: 6px;'><strong>5-page results</strong> to discuss</li>
+                <li style='margin-bottom: 0;'><strong>One experiment</strong> to agree on</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div style='background: #fffbeb; border: 2px solid #fde047; border-radius: 12px; padding: 20px; height: 100%;'>
+            <h3 style='font-size: 1rem; margin-bottom: 12px; color: #854d0e;'>🔒 Your data</h3>
+            <ul style='margin: 0; padding-left: 20px; color: #334155; font-size: 0.95rem;'>
+                <li style='margin-bottom: 6px;'>Stays in <strong>your browser only</strong></li>
+                <li style='margin-bottom: 6px;'><strong>Nothing sent</strong> to any server</li>
+                <li style='margin-bottom: 0;'><strong>Gone</strong> when you close the tab</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<div style='margin: 30px 0 20px;'></div>", unsafe_allow_html=True)
+    
+    # Safety note - PROMINENT
+    st.warning("""
+    ⏸️ **This is for constructive conversations, not blame or therapy.** Pause if either of you feels upset. You can stop anytime.
+    """)
+    
+    st.markdown("<div style='margin: 25px 0 15px;'></div>", unsafe_allow_html=True)
+    
+    # Simple agreement checkboxes - MINIMAL
+    kind = st.checkbox("**We'll be kind and pause if it gets difficult**", key="consent_kind")
+    consent = st.checkbox("**We consent to answer questions and view results together**", key="consent_agree")
+    
+    st.markdown("<div style='margin: 20px 0;'></div>", unsafe_allow_html=True)
+    
+    # Optional details in expander - LAYERED INFO
+    with st.expander("📋 Full details (optional - click to read more)"):
+        st.markdown("""
+        ### About this tool
+        
+        **Purpose:** This is a research tool developed for a Master's thesis at a Danish university. It helps couples visualise household mental load and agree on small experiments.
+        
+        **What we collect:** Nothing. All data stays in your browser. We don't collect names, emails, or any identifiable information.
+        
+        **Voluntary participation:** You can stop at any time and close the browser. There's no penalty for stopping.
+        
+        **Risks:** Minimal. Some couples may find the questions bring up sensitive topics. We recommend doing this when you're both in a good headspace.
+        
+        **Benefits:** You'll get personalised insights about your household mental load distribution and research-backed conversation prompts.
+        
+        **Research basis:** Based on academic research by Daminger (2019), Dean et al. (2022), and Barigozzi et al. (2025) on household cognitive labour.
+        
+        **Questions?** This tool is not a substitute for couples therapy or counselling. If you're experiencing relationship difficulties, please seek professional support.
+        
+        **Contact:** [Insert your university email here]
+        """)
+    
+    st.markdown("<div style='margin: 30px 0 10px;'></div>", unsafe_allow_html=True)
+    
+    # Big CTA - SINGLE ACTION
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        disabled = not (kind and consent)
+        if st.button("Let's begin →", disabled=disabled, use_container_width=True, type="primary"):
+            st.session_state.stage = "setup"
+            st.rerun()
+        
+        if disabled:
+            st.caption("✓ Tick both boxes above to continue")
+        else:
+            st.caption("Ready to start • 15 minutes together")
 ----
 screens/home.py
 # screens/home.py
@@ -302,7 +467,7 @@ def screen_home():
     </div>
     """, unsafe_allow_html=True)
     
-    # Quick value props (visual cards)
+    # Quick value props (visual cards) - ORIGINAL GRADIENTS
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -343,15 +508,15 @@ def screen_home():
     
     st.markdown("<div style='margin: 50px 0 40px;'></div>", unsafe_allow_html=True)
     
-    # How it works - SIMPLE
+    # How it works - PROFESSIONAL VERSION
     st.markdown("""
     <div style='text-align: center; margin-bottom: 30px;'>
-        <h2 style='font-size: 2rem; font-weight: 700; margin-bottom: 10px;'>Three steps, 20 minutes</h2>
-        <p style='font-size: 1.1rem; color: #64748b;'>Do it together. Take breaks if you need them.</p>
+        <h2 style='font-size: 2rem; font-weight: 700; margin-bottom: 10px;'>How It Works</h2>
+        <p style='font-size: 1.1rem; color: #64748b;'>Three steps, approximately 20 minutes</p>
     </div>
     """, unsafe_allow_html=True)
     
-    # Three steps - VISUAL
+    # Three steps - ORIGINAL CIRCLES
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -360,9 +525,9 @@ def screen_home():
             <div style='width: 60px; height: 60px; background: #3b82f6; color: white; border-radius: 50%; 
                         display: flex; align-items: center; justify-content: center; font-size: 1.5rem; 
                         font-weight: bold; margin: 0 auto 15px;'>1</div>
-            <h3 style='font-size: 1.1rem; margin-bottom: 8px;'>Answer together</h3>
+            <h3 style='font-size: 1.1rem; margin-bottom: 8px;'>Answer Together</h3>
             <p style='color: #64748b; font-size: 0.9rem; margin: 0;'>
-                10-15 min questionnaire about household tasks
+                Rate 20-25 household tasks on responsibility, burden, and fairness
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -373,9 +538,9 @@ def screen_home():
             <div style='width: 60px; height: 60px; background: #8b5cf6; color: white; border-radius: 50%; 
                         display: flex; align-items: center; justify-content: center; font-size: 1.5rem; 
                         font-weight: bold; margin: 0 auto 15px;'>2</div>
-            <h3 style='font-size: 1.1rem; margin-bottom: 8px;'>See your results</h3>
+            <h3 style='font-size: 1.1rem; margin-bottom: 8px;'>Review Results</h3>
             <p style='color: #64748b; font-size: 0.9rem; margin: 0;'>
-                5-page journey through your household patterns
+                Navigate through five pages of personalised insights
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -386,16 +551,30 @@ def screen_home():
             <div style='width: 60px; height: 60px; background: #10b981; color: white; border-radius: 50%; 
                         display: flex; align-items: center; justify-content: center; font-size: 1.5rem; 
                         font-weight: bold; margin: 0 auto 15px;'>3</div>
-            <h3 style='font-size: 1.1rem; margin-bottom: 8px;'>Pick one experiment</h3>
+            <h3 style='font-size: 1.1rem; margin-bottom: 8px;'>Provide Feedback</h3>
             <p style='color: #64748b; font-size: 0.9rem; margin: 0;'>
-                Agree on one small change to try for a week
+                Complete a brief survey about your experience
             </p>
         </div>
         """, unsafe_allow_html=True)
     
     st.markdown("<div style='margin: 60px 0 40px;'></div>", unsafe_allow_html=True)
     
-    # Key promises - SCANNABLE
+    # NEW: Research context section
+    st.markdown("## About This Research")
+    st.info("""
+    **Study Purpose:** This tool is being developed as part of a Master's thesis to explore 
+    whether digital interventions can facilitate productive dialogue about household cognitive labour.
+    
+    **What We're Testing:** Whether this tool helps couples understand and discuss mental load, 
+    not whether it measures or reduces mental load itself.
+    
+    **Your Role:** By participating, you're helping evaluate the tool's usability and effectiveness.
+    """)
+    
+    st.markdown("<div style='margin: 40px 0;'></div>", unsafe_allow_html=True)
+    
+    # Key promises - ORIGINAL BOXES
     col1, col2 = st.columns(2)
     
     with col1:
@@ -426,7 +605,16 @@ def screen_home():
     
     st.markdown("<div style='margin: 60px 0 30px;'></div>", unsafe_allow_html=True)
     
-    # Pause warning - VISIBLE
+    # NEW: Important notes section
+    st.warning("""
+    **Please Note:**
+    - This is a research tool, not a clinical instrument
+    - Not a substitute for couples therapy or counselling
+    - Results are based on your subjective perceptions
+    - Pause if discussions become difficult
+    """)
+    
+    # Pause warning - ORIGINAL
     st.warning("""
     ⏸️ **Pause if either of you is tired, stressed, or hungry right now.** This works best when you're both in a good headspace.
     """)
@@ -436,40 +624,45 @@ def screen_home():
     # CTA - BIG button
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("Start now →", use_container_width=True, type="primary"):
+        if st.button("Begin Study →", use_container_width=True, type="primary"):
             st.session_state.stage = "consent"
             st.rerun()
         st.caption("20 minutes together • No data stored • Research-based")
     
     st.markdown("<div style='margin: 60px 0 20px;'></div>", unsafe_allow_html=True)
     
-    # Details in expanders - OPTIONAL reading
+    # NEW: Research details and eligibility in expanders
     col1, col2 = st.columns(2)
     
     with col1:
-        with st.expander("🎓 The research behind this"):
+        with st.expander("🎓 Research Information"):
             st.markdown("""
-            Based on academic research on household cognitive labour:
+            **Researcher:** Paul Carmody
+            **Institution:** University of Northumbria
+            **Programme:** Master's in Computer Science with Data Analytics
+            **Supervisor:** Dr. Naveed Anwar
+
+            This study has received ethical approval.
             
-            - **Daminger (2019)**: Four dimensions of mental work
-            - **Dean et al. (2022)**: Mental load and emotional labour
-            - **Barigozzi et al. (2025)**: Fairness perceptions matter
-            
-            Developed for a Master's thesis at a Danish university.
+            **Based on academic research:**
+            - Daminger (2019): Cognitive dimensions of household labour
+            - Hart & Staveland (1988): NASA-TLX workload assessment
+            - Dean et al. (2022): Mental load and emotional labour
             """)
     
     with col2:
-        with st.expander("❓ Who is this for?"):
+        with st.expander("❓ Who Can Participate?"):
             st.markdown("""
-            **Best for:**
-            - Couples living together
-            - Partners ready for honest conversation
-            - Households where one person feels overwhelmed
+            **Inclusion Criteria:**
+            - Cohabiting couples (any gender)
+            - Both partners present and consenting
+            - Able to complete in English
+            - Access to computer/tablet
             
-            **Not a substitute for:**
-            - Couples therapy
-            - Relationship counselling
-            - Crisis intervention
+            **Not Suitable For:**
+            - Couples in crisis
+            - Those seeking clinical intervention
+            - Single-person households
             """)
 ----
 screens/learnmore.py
@@ -492,289 +685,287 @@ import streamlit as st
 from typing import Dict, List
 
 from tasks import get_filtered_tasks, group_by_pillar
-from utils.ui import step_header, learn_popover, safety_note
 
-# --------- Pillar context (conversational, research-grounded) ---------
-PILLAR_INTRO: Dict[str, Dict[str, str]] = {
+# --------- Simple pillar headers ---------
+PILLAR_INFO: Dict[str, Dict[str, str]] = {
     "anticipation": {
-        "title": "🔮 Anticipation: Thinking Ahead",
-        "research": "Research identifies anticipation as one of four core dimensions of household cognitive labour (Daminger, 2019). This involves thinking ahead to what will be needed, often before anyone else notices.",
-        "what_it_means": "This is the mental work of noticing what will be needed soon and planning for it before it becomes urgent.",
-        "example": "Remembering the school form is due Friday, noticing you're low on milk, planning meals for the week."
+        "emoji": "🔮",
+        "title": "Thinking Ahead",
+        "description": "Noticing what will be needed soon and planning for it",
+        "example": "Remembering the school form is due, noticing you're low on milk, planning meals"
     },
     "identification": {
-        "title": "👁️ Identification: Noticing What Needs Doing",
-        "research": "Identification refers to recognising what needs to be done and breaking it down into actionable tasks (Daminger, 2019). Studies show this 'noticing work' is often gendered and invisible to those not doing it.",
-        "what_it_means": "This is the work of seeing what needs to happen and defining the actual tasks involved.",
-        "example": "Spotting that the bathroom needs cleaning, recognising a child needs new shoes, seeing the light bulb is out."
+        "emoji": "👁️",
+        "title": "Noticing What Needs Doing",
+        "description": "Spotting what needs to happen and defining the tasks",
+        "example": "Seeing the bathroom needs cleaning, recognising a child needs new shoes"
     },
     "decision": {
-        "title": "🤔 Decision-Making: Choosing How & When",
-        "research": "Decision-making includes researching options, weighing trade-offs, and coordinating schedules (Daminger, 2019). This 'project management' work is often invisible yet cognitively demanding.",
-        "what_it_means": "This is about making choices for the household - which doctor, what gift, how to handle a situation.",
-        "example": "Choosing which childcare, deciding what to cook, picking a birthday gift, scheduling appointments."
+        "emoji": "🤔",
+        "title": "Choosing How & When",
+        "description": "Making household choices and coordinating schedules",
+        "example": "Deciding what to cook, choosing childcare, picking gifts, scheduling appointments"
     },
     "monitoring": {
-        "title": "📋 Monitoring: Following Up & Tracking",
-        "research": "Monitoring involves tracking whether tasks are completed and following up when needed (Daminger, 2019). Research emphasises this as a particularly invisible form of cognitive labour that can remain stressful even when tasks are delegated.",
-        "what_it_means": "This is the work of tracking progress, remembering deadlines, and ensuring things don't fall through the cracks.",
-        "example": "Checking if forms got submitted, following up on RSVPs, tracking when bills are due, reminding about tasks."
+        "emoji": "📋",
+        "title": "Following Up & Tracking",
+        "description": "Keeping track of progress and making sure nothing falls through the cracks",
+        "example": "Checking if forms got submitted, following up on RSVPs, tracking bill due dates"
     },
     "emotional": {
-        "title": "💝 Emotional Labour: The Caring Work",
-        "research": "Emotional labour includes managing feelings, maintaining relationships, and creating household harmony (Dean, Churchill and Ruppanner, 2022). Research now recognises this as cognitive work, not simply 'being nice'.",
-        "what_it_means": "This is about noticing and responding to others' feelings, maintaining family relationships, and creating a positive home environment.",
-        "example": "Soothing upset children, remembering to call grandma, managing conflicts, creating special moments."
+        "emoji": "💝",
+        "title": "The Caring Work",
+        "description": "Noticing and responding to feelings, maintaining relationships",
+        "example": "Soothing upset children, remembering to call grandma, managing conflicts"
     }
 }
 
-# --------- Helper for task display ---------
-def _render_task_card(task, default=None):
-    """Simplified, conversation-focused task card"""
-    
-    # Task name as header
-    st.markdown(f"### {task.name}")
-    
-    # Brief definition (not overwhelming)
-    if task.definition:
-        st.markdown(f"*{task.definition}*")
-    
-    # What counts (in a compact format)
-    if task.what_counts:
-        with st.expander("💡 What this includes"):
-            for item in task.what_counts:
-                st.markdown(f"• {item}")
-    
-    # Example if helpful
-    if task.example:
-        st.info(f"**Example:** {task.example}")
-    
-    st.markdown("")  # Spacing
-    
-    # Three questions, presented more conversationally
-    st.markdown("**Answer these three questions together:**")
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        # 1. Responsibility
-        st.markdown("**1. Who mainly handles this right now?**")
-        responsibility = st.slider(
-            "Slide toward the person who carries most of this mental work",
-            min_value=0, 
-            max_value=100, 
-            value=(default or {}).get("responsibility", 50),
-            key=f"{task.id}_resp",
-            help="0 = Partner A does all of it, 50 = shared equally, 100 = Partner B does all of it",
-            label_visibility="collapsed"
-        )
-        
-        # Visual label
-        if responsibility < 30:
-            st.caption("← Partner A handles most of this")
-        elif responsibility > 70:
-            st.caption("Partner B handles most of this →")
-        else:
-            st.caption("↔️ Shared fairly evenly")
-        
-        st.markdown("")
-        
-        # 2. Burden
-        st.markdown("**2. How mentally draining is this task?**")
-        st.caption("For whoever mainly handles it - how heavy does it feel?")
-        burden = st.slider(
-            "Burden level",
-            min_value=1, 
-            max_value=5, 
-            value=(default or {}).get("burden", 3),
-            key=f"{task.id}_burden",
-            help="1 = Easy/light, 5 = Very draining",
-            label_visibility="collapsed"
-        )
-        
-        # Visual feedback
-        burden_labels = {1: "😌 Light", 2: "🙂 Manageable", 3: "😐 Moderate", 4: "😓 Heavy", 5: "😰 Very draining"}
-        st.caption(burden_labels.get(burden, ""))
-        
-        st.markdown("")
-        
-        # 3. Fairness
-        st.markdown("**3. Does this feel fair right now?**")
-        st.caption("Your gut feeling - not what 'should' be fair, but how it actually feels")
-        fairness = st.slider(
-            "Fairness feeling",
-            min_value=1, 
-            max_value=5, 
-            value=(default or {}).get("fairness", 3),
-            key=f"{task.id}_fair",
-            help="1 = Very unfair, 5 = Completely fair",
-            label_visibility="collapsed"
-        )
-        
-        # Visual feedback
-        fairness_labels = {1: "😞 Feels unfair", 2: "😕 Not quite fair", 3: "😐 Neutral", 4: "🙂 Pretty fair", 5: "😊 Feels fair"}
-        st.caption(fairness_labels.get(fairness, ""))
-    
-    with col2:
-        st.markdown("**Not relevant?**")
-        not_applicable = st.checkbox(
-            "Skip this task",
-            value=(default or {}).get("not_applicable", False),
-            key=f"{task.id}_na",
-            help="Check this if this task doesn't apply to your household"
-        )
-    
-    return {
-        "task_id": task.id,
-        "responsibility": responsibility,
-        "burden": burden,
-        "fairness": fairness,
-        "not_applicable": not_applicable,
-    }
+PILLAR_ORDER = ["anticipation", "identification", "decision", "monitoring", "emotional"]
 
-
-# --------- Main screen ---------
 def screen_questionnaire():
-    # Initialize state
-    st.session_state.setdefault("q_pillar_index", 0)
-    st.session_state.setdefault("responses", [])
-    st.session_state.setdefault("notes_by_section", {})
-
-    # Get context
-    children = st.session_state.get("children", 0)
-    household_type = st.session_state.get("household_type", "couple")
-    is_emp_me = st.session_state.get("is_employed_me", True)
-    is_emp_partner = st.session_state.get("is_employed_partner", True) if household_type == "couple" else False
-    both_employed = (is_emp_me and is_emp_partner) if household_type == "couple" else is_emp_me
-
-    tasks = get_filtered_tasks(children, both_employed)
-    groups = group_by_pillar(tasks)
-
-    # Pillar order
-    ordered = ["anticipation", "identification", "decision", "monitoring", "emotional"]
-    pillar_keys: List[str] = [k for k in ordered if k in groups] + [k for k in groups.keys() if k not in ordered]
-
-    # Progress
-    total_sections = len(pillar_keys)
-    i = st.session_state.q_pillar_index
-    progress = int((i / max(total_sections, 1)) * 100)
-
-    # Header
-    st.title("📝 Household Questionnaire")
-    st.caption(f"Section {i+1} of {total_sections} • Talk it through together as you go")
-    st.progress(progress)
+    """Simple questionnaire - all sections visible, just scroll through"""
     
-    # Top navigation
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col1:
-        if st.button("🏠 Home", use_container_width=True):
-            st.session_state.stage = "home"
-            st.rerun()
-    with col2:
-        learn_popover()
-    with col3:
-        if st.button("💾 Save & Exit", use_container_width=True):
-            st.info("Your progress is saved in this session. You can return anytime before closing the browser.")
-            st.session_state.stage = "home"
-            st.rerun()
-
+    # Header
+    st.markdown("""
+    <div style='text-align: center; margin-bottom: 30px;'>
+        <h1 style='font-size: 2rem; font-weight: 700; margin-bottom: 8px;'>Your household tasks</h1>
+        <p style='font-size: 1.1rem; color: #64748b;'>Answer these together • Scroll through all sections • Take your time</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Quick instructions
+    with st.expander("📖 How to use this questionnaire"):
+        st.markdown("""
+        **For each task, answer three questions:**
+        1. **Who mainly handles this?** (Slider: Partner A ← → Partner B)
+        2. **How mentally draining is this?** (1 = light, 5 = very draining)
+        3. **Does this feel fair?** (1 = very unfair, 5 = very fair)
+        
+        **Tips:**
+        - If a task doesn't apply to you, tick "Not applicable"
+        - Think about the *mental work* (planning, remembering), not just the physical doing
+        - Be honest about how things are, not how you wish they were
+        - Take breaks if you need to
+        """)
+    
+    st.info("💭 **Remember:** No right or wrong answers. This is about understanding, not blame.")
     st.markdown("---")
-
-    if not pillar_keys:
-        st.warning("No tasks available for your context. Try adjusting Setup.")
-        if st.button("← Back to Setup"):
+    
+    # Get filtered tasks
+    children = st.session_state.get("children", 0)
+    both_employed = st.session_state.get("is_employed_me", True) and st.session_state.get("is_employed_partner", True)
+    has_pets = st.session_state.get("has_pets", False)
+    has_vehicle = st.session_state.get("has_vehicle", False)
+    tasks = get_filtered_tasks(children, both_employed, has_pets, has_vehicle)
+    pillars = group_by_pillar(tasks)
+    
+    # Initialize responses dict
+    if "responses_dict" not in st.session_state:
+        st.session_state.responses_dict = {}
+    
+    # Progress at top
+    total_tasks = len(tasks)
+    completed_tasks = len(st.session_state.responses_dict)
+    
+    if total_tasks > 0:
+        progress_pct = (completed_tasks / total_tasks) * 100
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.progress(progress_pct / 100)
+        with col2:
+            st.caption(f"**{completed_tasks} / {total_tasks}**")
+    
+    st.markdown("<div style='margin: 30px 0;'></div>", unsafe_allow_html=True)
+    
+    # Loop through pillars - all visible
+    for pillar_key in PILLAR_ORDER:
+        if pillar_key not in pillars:
+            continue
+        
+        info = PILLAR_INFO[pillar_key]
+        pillar_tasks = pillars[pillar_key]
+        
+        # Section header - simple and clear
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%); 
+                    border-left: 5px solid #6366f1; padding: 20px; border-radius: 12px; margin: 40px 0 25px 0;'>
+            <h2 style='margin: 0 0 8px 0; font-size: 1.6rem;'>
+                {info['emoji']} {info['title']}
+            </h2>
+            <p style='margin: 0 0 10px 0; color: #475569; font-size: 1.05rem;'>
+                {info['description']}
+            </p>
+            <p style='margin: 0; color: #64748b; font-size: 0.95rem;'>
+                <strong>Examples:</strong> {info['example']}
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Render each task
+        for task in pillar_tasks:
+            render_task(task)
+            st.markdown("---")
+        
+        # Optional section notes
+        st.markdown("##### 📝 Notes on this section (optional)")
+        notes_key = f"notes_{pillar_key}"
+        if "notes_by_section" not in st.session_state:
+            st.session_state.notes_by_section = {}
+        
+        st.session_state.notes_by_section[pillar_key] = st.text_area(
+            "Section notes",
+            value=st.session_state.notes_by_section.get(pillar_key, ""),
+            height=70,
+            placeholder="Any thoughts or observations about this section...",
+            key=notes_key,
+            label_visibility="collapsed"
+        )
+    
+    # Convert dict to list for compatibility
+    st.session_state.responses = list(st.session_state.responses_dict.values())
+    
+    # Bottom navigation
+    st.markdown("<div style='margin: 50px 0 30px 0;'></div>", unsafe_allow_html=True)
+    st.markdown("---")
+    
+    # Check how many completed
+    actual_completed = sum(1 for r in st.session_state.responses_dict.values() 
+                          if not r.get("not_applicable", False))
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col1:
+        if st.button("← Back to setup", use_container_width=True):
             st.session_state.stage = "setup"
             st.rerun()
-        return
-
-    # Current pillar
-    pillar = pillar_keys[i]
-    pillar_info = PILLAR_INTRO.get(pillar, {})
     
-    # Pillar introduction (research-grounded)
-    st.markdown(f"## {pillar_info.get('title', pillar.capitalize())}")
-    
-    with st.expander("🎓 Why we're asking about this", expanded=(i == 0)):
-        st.markdown(f"**What research shows:** {pillar_info.get('research', '')}")
-        st.markdown(f"**What it means:** {pillar_info.get('what_it_means', '')}")
-        st.markdown(f"**Example:** {pillar_info.get('example', '')}")
-    
-    st.markdown("---")
-    
-    # Gentle reminder
-    if i == 0:
-        st.info("💙 **Remember:** There are no right answers. Just your honest experience right now. Take breaks if you need them.")
-    
-    # Tasks in this section
-    section_tasks = groups[pillar]
-    st.markdown(f"### {len(section_tasks)} tasks in this section")
-    st.caption("For each task, answer together. It's okay to disagree - note different perspectives at the bottom.")
-    
-    st.markdown("---")
-    
-    # Render tasks
-    updated = []
-    for idx, t in enumerate(section_tasks, 1):
-        st.markdown(f"#### Task {idx} of {len(section_tasks)}")
-        prev = next((r for r in st.session_state.responses if r["task_id"] == t.id), None)
-        resp = _render_task_card(t, default=prev)
-        updated.append(resp)
-        st.markdown("---")
-
-    # Merge updates
-    other = [r for r in st.session_state.responses if r["task_id"] not in {t.id for t in section_tasks}]
-    st.session_state.responses = other + updated
-
-    # Notes for this section
-    st.markdown("### 📝 Notes for this section (optional)")
-    st.caption("Different perspectives? Something that felt particularly heavy? An idea to try? Jot it down.")
-    
-    note_key = f"notes_{pillar}"
-    existing_note = st.session_state.notes_by_section.get(pillar, "")
-    
-    new_note = st.text_area(
-        "Your notes:",
-        value=existing_note,
-        height=100,
-        placeholder="E.g., 'Partner A didn't realize Partner B was tracking all the meal planning' or 'We both want to try meal-prepping on Sundays'",
-        key=note_key,
-        help="These notes stay in your browser session and can be exported with your results."
-    )
-    st.session_state.notes_by_section[pillar] = new_note
-
-    # Navigation
-    st.markdown("---")
-    st.markdown("### Ready to continue?")
-    
-    colA, colB, colC = st.columns([1, 1, 2])
-    with colA:
-        if st.button("⬅️ Previous Section", disabled=(i == 0), use_container_width=True):
-            if i > 0:
-                st.session_state.q_pillar_index = i - 1
-                st.rerun()
-    with colB:
-        if i < total_sections - 1:
-            if st.button("Next Section ➡️", use_container_width=True, type="primary"):
-                st.session_state.q_pillar_index = i + 1
-                st.rerun()
+    with col2:
+        if actual_completed < 5:
+            st.button(
+                "See results →", 
+                type="primary", 
+                disabled=True,
+                use_container_width=True
+            )
+            st.caption(f"⚠️ Please answer at least 5 tasks ({actual_completed}/5)")
         else:
-            if st.button("See Results →", use_container_width=True, type="primary"):
-                if not st.session_state.responses:
-                    st.warning("Please answer at least one task first.")
-                else:
-                    st.session_state.results_prep_seen = False  # Force showing prep screen
-                    st.session_state.stage = "results"
-                    st.rerun()
+            if st.button("See results →", type="primary", use_container_width=True):
+                st.session_state.stage = "results"
+                st.rerun()
+            st.caption(f"✅ {actual_completed} tasks answered")
+
+
+def render_task(task):
+    """Render a single task with its three questions"""
     
-    with colC:
-        # Progress indicator
-        completed = sum(1 for r in st.session_state.responses if not r.get("not_applicable", False))
-        total_tasks = len(tasks)
-        st.caption(f"📊 Progress: {completed} of {total_tasks} tasks completed")
+    # Get existing response
+    existing = st.session_state.responses_dict.get(task.id, {})
+    
+    # Task header
+    st.markdown(f"### {task.name}")
+    
+    if task.definition:
+        st.caption(task.definition)
+    
+    # Optional details
+    if task.what_counts or task.example:
+        with st.expander("💡 What counts?"):
+            if task.what_counts:
+                for item in task.what_counts:
+                    st.write(f"• {item}")
+            if task.example:
+                st.info(f"**Example:** {task.example}")
+    
+    # Create columns for main questions and N/A checkbox
+    col_main, col_na = st.columns([4, 1])
+    
+    with col_main:
+        # Question 1: Responsibility
+        st.markdown("**Who mainly handles this?**")
+        responsibility = st.slider(
+            "Responsibility",
+            min_value=0, 
+            max_value=100, 
+            value=existing.get("responsibility", 50),
+            key=f"{task.id}_resp",
+            label_visibility="collapsed"
+        )
+        
+        # Feedback
+        if responsibility < 30:
+            st.caption("← Mostly Partner A")
+        elif responsibility > 70:
+            st.caption("Mostly Partner B →")
+        else:
+            st.caption("↔️ Shared fairly equally")
+        
+        st.markdown("")
+        
+        # Question 2: Burden
+        st.markdown("**How mentally draining is this?**")
+        burden = st.slider(
+            "Mental burden",
+            min_value=1, 
+            max_value=5, 
+            value=existing.get("burden", 3),
+            key=f"{task.id}_burden",
+            format="%d",
+            label_visibility="collapsed"
+        )
+        
+        burden_emoji = {1: "😌", 2: "🙂", 3: "😐", 4: "😓", 5: "😰"}
+        burden_text = {1: "Very light", 2: "Manageable", 3: "Moderate", 4: "Heavy", 5: "Very draining"}
+        st.caption(f"{burden_emoji.get(burden, '')} {burden_text.get(burden, '')}")
+        
+        st.markdown("")
+        
+        # Question 3: Fairness
+        st.markdown("**Does this feel fair?**")
+        fairness = st.slider(
+            "Fairness",
+            min_value=1, 
+            max_value=5, 
+            value=existing.get("fairness", 3),
+            key=f"{task.id}_fair",
+            format="%d",
+            label_visibility="collapsed"
+        )
+        
+        fairness_emoji = {1: "😟", 2: "😕", 3: "😐", 4: "🙂", 5: "😊"}
+        fairness_text = {1: "Very unfair", 2: "Somewhat unfair", 3: "Neutral", 4: "Mostly fair", 5: "Very fair"}
+        st.caption(f"{fairness_emoji.get(fairness, '')} {fairness_text.get(fairness, '')}")
+    
+    with col_na:
+        st.markdown("**N/A?**")
+        not_applicable = st.checkbox(
+            "Not applicable",
+            value=existing.get("not_applicable", False),
+            key=f"{task.id}_na",
+            label_visibility="collapsed"
+        )
+    
+    # Save response if changed from defaults
+    has_changed = (
+        existing  # Already exists
+        or not_applicable  # N/A checked
+        or responsibility != 50  # Moved
+        or burden != 3  # Moved
+        or fairness != 3  # Moved
+    )
+    
+    if has_changed:
+        st.session_state.responses_dict[task.id] = {
+            "task_id": task.id,
+            "responsibility": responsibility,
+            "burden": burden,
+            "fairness": fairness,
+            "not_applicable": not_applicable,
+        }
 ----
 screens/results.py
 # screens/results.py
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
@@ -797,6 +988,34 @@ PILLAR_LABELS = {
     "monitoring": "Monitoring",
     "emotional": "Emotional",
 }
+
+# ---------- Scroll to top helper ----------
+def scroll_to_top():
+    """Force scroll to top using multiple methods for reliability"""
+    components.html(
+        """
+        <script>
+            // Method 1: Scroll main content area
+            const mainContent = window.parent.document.querySelector('section.main');
+            if (mainContent) {
+                mainContent.scrollTop = 0;
+            }
+            
+            // Method 2: Scroll body
+            window.parent.document.body.scrollTop = 0;
+            
+            // Method 3: Scroll document element
+            window.parent.document.documentElement.scrollTop = 0;
+            
+            // Method 4: Use scrollTo on window
+            window.parent.scrollTo(0, 0);
+            
+            // Method 5: Use scrollTo with behavior
+            window.parent.scrollTo({top: 0, behavior: 'instant'});
+        </script>
+        """,
+        height=0,
+    )
 
 # ---------- utils ----------
 def _to_response_objects(response_dicts):
@@ -833,14 +1052,29 @@ def _plain_reason(raw: str) -> str:
     return s
 
 def _reason_to_question(reasons: str) -> str:
-    """Convert reasons into conversation questions"""
-    r = (reasons or "").lower()
-    if "lopsided" in r or "imbalance" in r or "handling most" in r:
-        return "How did this become one person's responsibility? Was it a deliberate choice?"
-    if "doesn't feel fair" in r or "fairness" in r:
-        return "What would 'fair' look like to each of you for this task?"
-    if "heavy" in r or "burden" in r or "draining" in r:
-        return "What makes this task feel so heavy? Could part of it be shared or simplified?"
+    """Convert a hotspot reason string into a conversation question."""
+    if not reasons:
+        return "What's one small thing that might make this easier?"
+    
+    r_lower = reasons.lower()
+    
+    # Priority combo
+    if "priority" in r_lower and "imbalanced" in r_lower and "unfair" in r_lower:
+        return "This feels both imbalanced and unfair. What would need to change for it to feel better?"
+    
+    # Imbalance
+    if "imbalance" in r_lower or "handling most" in r_lower:
+        return "How did this pattern develop? Would a different split work better?"
+    
+    # High burden
+    if "draining" in r_lower or "burden" in r_lower:
+        return "What makes this feel so heavy? Is it the task itself or the mental energy around it?"
+    
+    # Fairness
+    if "fair" in r_lower:
+        return "What would make this feel fairer to both of you?"
+    
+    # Default
     return "What's one small thing that might make this easier?"
 
 def _add_notes_section(page_name: str):
@@ -854,7 +1088,7 @@ def _add_notes_section(page_name: str):
         - When you close this browser tab, they're gone forever
         """)
         
-        # Initialize notes dict if it doesn't exist
+        # Initialise notes dict if it doesn't exist
         if "results_notes" not in st.session_state:
             st.session_state.results_notes = {}
         
@@ -933,14 +1167,14 @@ def _export_csv(responses, results, hotspots):
     summary = pd.DataFrame(
         {
             "Metric": [
-                "Partner A load (0–100)",
-                "Partner B load (0–100)",
+                "Partner A burden (0–100)",
+                "Partner B burden (0–100)",
                 "Partner A invisible share (%)",
                 "Partner B invisible share (%)",
             ],
             "Value": [
-                results["my_intensity"],
-                results["partner_intensity"],
+                results["my_burden"],
+                results["partner_burden"],
                 results["my_share_pct"],
                 results["partner_share_pct"],
             ],
@@ -956,12 +1190,23 @@ def _export_csv(responses, results, hotspots):
         hs_rows = [{"Task": h.get("task", ""), "Why it matters": _plain_reason(h.get("reasons", "")), "Question to discuss": _reason_to_question(h.get("reasons", ""))} for h in hotspots]
         csv += "\n\nCONVERSATION STARTERS\n" + pd.DataFrame(hs_rows).to_csv(index=False)
 
-    # Include conversation notes if any exist
-    notes = st.session_state.get("results_notes", {})
-    if any(v.strip() for v in notes.values()):
-        csv += "\n\nYOUR CONVERSATION NOTES\n"
+    # Include QUESTIONNAIRE section notes (from when they filled it in)
+    questionnaire_notes = st.session_state.get("notes_by_section", {})
+    if any(v.strip() for v in questionnaire_notes.values()):
+        csv += "\n\nQUESTIONNAIRE SECTION NOTES\n"
         notes_rows = []
-        for page, note in notes.items():
+        for section, note in questionnaire_notes.items():
+            if note.strip():
+                notes_rows.append({"Section": section, "Notes": note.strip()})
+        if notes_rows:
+            csv += pd.DataFrame(notes_rows).to_csv(index=False)
+
+    # Include RESULTS conversation notes (from results pages)
+    results_notes = st.session_state.get("results_notes", {})
+    if any(v.strip() for v in results_notes.values()):
+        csv += "\n\nRESULTS CONVERSATION NOTES\n"
+        notes_rows = []
+        for page, note in results_notes.items():
             if note.strip():
                 notes_rows.append({"Page": page, "Notes": note.strip()})
         if notes_rows:
@@ -971,78 +1216,41 @@ def _export_csv(responses, results, hotspots):
 
 # ---------- conversation prep screen ----------
 def screen_before_results():
-    """Pre-results conversation guide"""
+    """Minimal prep before viewing results"""
     st.title("💬 Before You See Your Results")
-    st.markdown("### A few minutes to prepare for a productive conversation")
+    st.caption("Quick prep for a productive conversation")
     
     st.markdown("""
-    You're about to see data about mental load in your household. This can bring up big feelings - 
-    that's completely normal and actually a sign you're both invested in your partnership.
+    You're about to see data about mental load in your household. This can bring up feelings - 
+    that's normal and shows you're both invested.
     """)
     
     st.markdown("---")
     
-    st.markdown("### 🎓 What Research Tells Us")
-    st.info("""
-    **Mental load** (also called cognitive labor) is the invisible work of managing a household: 
-    anticipating needs, making decisions, tracking details, and coordinating family life.
-    
-    Research consistently shows:
-    - This work is often invisible to the person not doing it
-    - In heterosexual couples, women typically carry 70-80% of this load
-    - It's **not about time spent** - it's about the mental energy of being "on call"
-    - Even in couples who split visible tasks 50/50, mental load is often imbalanced
-    - The biggest predictor of relationship satisfaction isn't perfect equality - it's feeling **heard and understood**
-    """)
-    
-    st.markdown("### 🤝 Ground Rules for This Conversation")
+    # Ground rules - CONDENSED
     st.success("""
-    **Do:**
-    - Assume good intentions
-    - Listen to understand, not to defend
-    - Notice what surprises you
-    - Acknowledge the other person's feelings as valid
-    - Take breaks if it gets intense
-    
-    **Don't:**
-    - Keep score or bring up past grievances  
-    - Interrupt or dismiss
-    - Try to "win" the conversation
-    - Expect to solve everything today
+    **🤝 Quick ground rules:**
+    - **Do:** Listen to understand, acknowledge feelings, take breaks if needed
+    - **Don't:** Keep score, interrupt, or try to "win"
     """)
     
-    st.markdown("### 🎯 The Goal of This Exercise")
-    st.markdown("""
-    The point isn't to create perfect 50/50 splits or to prove who's right. 
-    
-    **The goal is to:**
-    1. Make invisible work visible
-    2. Understand each other's experience
-    3. Find 1-2 small changes you both agree to try
-    4. Build a habit of checking in together
+    # Key insight - ONE LINE
+    st.info("""
+    **💡 Research shows:** Feeling heard matters more than perfect equality. Just discussing mental load improves relationships.
     """)
     
-    st.markdown("---")
-    
-    st.markdown("### ✋ Before You Continue")
-    st.warning("""
-    **Pause here if:**
-    - Either of you is tired, hungry, or stressed right now
-    - You've been arguing about this recently
-    - One of you isn't ready to have this conversation
-    
-    This tool will be here when you're both ready. There's no rush.
-    """)
+    # Pause warning
+    st.warning("⏸️ **Pause if** either of you is tired, stressed, or not ready. This can wait.")
     
     st.markdown("---")
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("← Back to questionnaire", use_container_width=True):
+        if st.button("← Back", use_container_width=True):
             st.session_state.stage = "questionnaire"
             st.rerun()
     with col2:
-        if st.button("We're ready - show results →", use_container_width=True, type="primary"):
+        if st.button("Show results →", use_container_width=True, type="primary"):
             st.session_state.results_page = 1
             st.session_state.stage = "results_main"
             st.rerun()
@@ -1061,14 +1269,14 @@ def _results_page_1_share(results, hotspots):
     
     with st.expander("📖 Click to read about mental load patterns in households"):
         st.markdown("""
-        Studies of household labor consistently find:
+        Studies of household labour consistently find:
         
         - **Visible vs. Invisible Split:** Even when couples split physical tasks evenly, the invisible work 
           (planning, remembering, coordinating) is often held by one partner
         - **The "Manager-Helper" Dynamic:** One partner acts as the household manager who delegates, 
           while the other helps when asked - but doesn't carry the mental burden of anticipating needs
         - **Gendered Patterns:** In heterosexual couples, research shows women typically carry 2-3x 
-          more cognitive labor, regardless of employment status
+          more cognitive labour, regardless of employment status
         - **Why It Matters:** Unacknowledged mental load is strongly linked to resentment, burnout, 
           and relationship dissatisfaction
         - **Good News:** Simply naming and discussing mental load improves outcomes, even before changes are made
@@ -1126,18 +1334,18 @@ def _results_page_2_burden(results):
     - Carrying responsibility without recognition
     """)
     
-    a_int, b_int = results["my_intensity"], results["partner_intensity"]
-    st.plotly_chart(comparison_bars(a_int, b_int, 100, "Partner A", "Partner B"), use_container_width=True)
+    a_burden, b_burden = results["my_burden"], results["partner_burden"]
+    st.plotly_chart(comparison_bars(a_burden, b_burden, 100, "Partner A", "Partner B"), use_container_width=True)
     
     # Research context
-    load_diff = abs(a_int - b_int)
-    if load_diff <= 15:
+    burden_diff = abs(a_burden - b_burden)
+    if burden_diff <= 15:
         st.success("Both partners report similar burden levels - this suggests the mental energy feels fairly distributed.")
-    elif load_diff <= 30:
-        heavier = "Partner A" if a_int > b_int else "Partner B"
+    elif burden_diff <= 30:
+        heavier = "Partner A" if a_burden > b_burden else "Partner B"
         st.info(f"📊 {heavier} reports feeling more burdened. This is worth exploring - sometimes visible task-sharing doesn't capture invisible stress.")
     else:
-        heavier = "Partner A" if a_int > b_int else "Partner B"
+        heavier = "Partner A" if a_burden > b_burden else "Partner B"
         st.warning(f"⚠️ {heavier}'s burden score is notably higher. Research links sustained high burden to burnout and relationship strain.")
     
     # Discussion prompt
@@ -1165,23 +1373,23 @@ def _results_page_3_pillars(results):
     
     st.markdown("## 🏛️ The Five Pillars of Mental Load")
     st.markdown("""
-    Research identifies five types of cognitive labor in households. This chart shows which 
+    Research identifies five types of cognitive labour in households. This chart shows which 
     partner is carrying more of each type.
     """)
     
     with st.expander("ℹ️ What these five pillars mean (click to expand)"):
         st.markdown("""
-        Based on research in household labor and emotional work:
+        Based on research in household labour and emotional work:
         
         - **Anticipation:** Thinking ahead to what will be needed (meal planning, remembering appointments, 
           anticipating when supplies run low)
-        - **Identification:** Noticing what needs doing (seeing the mess, recognizing when something's broken, 
+        - **Identification:** Noticing what needs doing (seeing the mess, recognising when something's broken, 
           spotting when someone needs support)
         - **Decision-Making:** Researching options and making choices (which doctor, what gift, how to handle 
           a situation)
         - **Monitoring:** Tracking progress and following up (did the form get submitted? Is the kids' project 
           done? Are we running low on groceries?)
-        - **Emotional Labor:** Managing feelings, maintaining relationships, providing support, creating 
+        - **Emotional Labour:** Managing feelings, maintaining relationships, providing support, creating 
           household harmony
         
         **Key finding:** The monitoring and anticipation pillars are often most invisible to the partner not doing them.
@@ -1196,7 +1404,7 @@ def _results_page_3_pillars(results):
     st.markdown("""
     **Questions to discuss together:**
     - Which pillar shows the biggest difference between you?
-    - Is there a pillar where one person didn't realize how much the other was doing?
+    - Is there a pillar where one person didn't realise how much the other was doing?
     - Research shows "monitoring" is often invisible - does that resonate?
     """)
     
@@ -1206,9 +1414,9 @@ def _results_page_3_pillars(results):
 
 
 def _results_page_4_hotspots(hotspots):
-    """Page 4: Conversation Starters"""
+    """Page 4: Conversation Starters - REDUCED TO TOP 5 ONLY"""
     st.title("📊 Conversation Starters")
-    st.caption("💙 Topics worth exploring together")
+    st.caption("💙 Focus on just a few key topics")
     st.progress(80)  # 4 of 5 pages
     
     st.markdown("---")
@@ -1219,13 +1427,18 @@ def _results_page_4_hotspots(hotspots):
     
     Research shows that couples who regularly discuss mental load (even without making immediate changes) 
     report higher satisfaction than those who don't talk about it.
+    
+    **We've focused on just the top few areas** to keep your conversation manageable and productive.
     """)
     
     if hotspots:
-        st.info(f"📌 We've identified {len(hotspots)} areas where responses suggest an imbalance, high burden, or fairness concern. Start with one.")
+        # LIMIT TO TOP 5 MAXIMUM
+        top_hotspots = hotspots[:5]
         
-        # Show top 3 as conversation starters
-        for i, h in enumerate(hotspots[:3], 1):
+        st.info(f"📌 We've identified {len(top_hotspots)} priority {'area' if len(top_hotspots) == 1 else 'areas'} to discuss. Pick one or two to start with.")
+        
+        # Show all selected hotspots fully expanded
+        for i, h in enumerate(top_hotspots, 1):
             with st.container():
                 st.markdown(f"### {i}. {h.get('task', 'Task')}")
                 
@@ -1240,14 +1453,9 @@ def _results_page_4_hotspots(hotspots):
                 
                 st.markdown("")
         
-        # Remaining in expander
-        if len(hotspots) > 3:
-            with st.expander(f"📋 See {len(hotspots) - 3} more conversation starters"):
-                for i, h in enumerate(hotspots[3:], 4):
-                    st.markdown(f"**{i}. {h.get('task', 'Task')}**")
-                    st.markdown(f"*{_plain_reason(h.get('reasons', ''))}*")
-                    st.markdown(f"💭 *{_reason_to_question(h.get('reasons', ''))}*")
-                    st.markdown("")
+        # Note about focusing on just a few
+        if len(hotspots) > 5:
+            st.info(f"💡 **Note:** There were {len(hotspots)} total areas flagged, but we're showing only the top 5 to help you focus. You can always revisit this tool to explore others later.")
     else:
         st.success("""
         🎉 **No major conversation starters detected!** 
@@ -1296,38 +1504,42 @@ def _results_page_5_action():
     st.markdown("---")
     
     # ====== EXPERIMENT ======
-    st.markdown("## 🧪 Try One Small Experiment")
-    st.markdown("""
-    Research on behavior change shows that small, time-bound experiments work better than big overhauls.
+    # ====== CRITICAL: SURVEY LINK ======
+    st.markdown("## 📋 Essential: Quick Survey")
+    st.error("""
+    **⚠️ Please complete this 5-minute survey now - it's crucial for the research!**
     
-    **The invitation:** Pick ONE thing from your conversation starters. Agree to try a small change 
-    for one week, then check in.
+    Your feedback helps us understand if the tool was useful.
+    This directly impacts the validity of the thesis research.
     """)
     
-    st.info("""
-    **What makes a good experiment:**
-    - Specific (not "help more" but "Partner B will plan meals Tuesday-Thursday")
-    - Time-bound (try for one week)
-    - Agreed by both (not imposed on one person)
-    - Reversible (you can always go back)
-    """)
+    survey_url = "https://forms.office.com/e/jM0DXUg1vV"
+    
+    col1, col2, col3 = st.columns([1, 3, 1])
+    with col2:
+        st.link_button(
+            "📋 Complete survey now (5 min) →",
+            survey_url,
+            use_container_width=True,
+            type="primary"
+        )
+        st.caption("⭐ Essential for research • Completely anonymous")
     
     st.markdown("---")
-    st.markdown("## 🎉 You've Completed the Journey")
+    
+    # Done
     st.success("""
-    You've taken an important step toward understanding mental load in your household. 
+    **🎉 You've completed the tool!**
     
     **Next steps:**
-    - Add any final notes below
-    - Download your results (including all your notes)
-    - Try your small experiment for one week
-    - Check in together next weekend
-    - Return to this tool in a month to see how things have shifted
+    1. ✅ Complete the survey above
+    2. 📥 Download your results if you want a copy(button at top)
+    3. 🧪 Try your one-week experiment
+    4. 🔄 Check in next week
     """)
     
-    # Optional notes
     st.markdown("---")
-    _add_notes_section("Page 5: Action Plan & Experiment")
+    _add_notes_section("Page 5: Action Plan")
 
 
 # ---------- main results navigation ----------
@@ -1344,22 +1556,32 @@ def screen_results_main():
     results = calc.compute()
     hotspots = Calculator.detect_hotspots(response_objs)
 
-    # Initialize page if not set
+    # Initialise page if not set
     if "results_page" not in st.session_state:
         st.session_state.results_page = 1
     
     current_page = st.session_state.results_page
     
-    # Header navigation (always visible)
-    col1, col2, col3 = st.columns([2, 1, 1])
+    # TOP NAVIGATION - So users don't need to scroll
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     with col1:
-        st.caption(f"Page {current_page} of 5")
+        if current_page > 1:
+            if st.button("← Previous", key="top_prev", use_container_width=True):
+                st.session_state.results_page -= 1
+                st.rerun()
+        else:
+            st.button("← Previous", key="top_prev_disabled", disabled=True, use_container_width=True)
     with col2:
-        if st.button("🔁 Start Over", use_container_width=True):
-            reset_state()
-            st.session_state.stage = "home"
-            st.rerun()
-    with col3:
+        if current_page < 5:
+            if st.button("Next →", key="top_next", use_container_width=True, type="primary"):
+                st.session_state.results_page += 1
+                st.rerun()
+        else:
+            if st.button("🏠 Finish", key="top_finish", use_container_width=True, type="primary"):
+                st.session_state.stage = "home"
+                st.rerun()
+    
+    with col4:
         csv_data = _export_csv(st.session_state.responses, results, hotspots)
         st.download_button(
             "📥 Export",
@@ -1367,8 +1589,10 @@ def screen_results_main():
             file_name="mental_load_results.csv",
             mime="text/csv",
             use_container_width=True,
+            key="top_export"
         )
     
+    st.caption(f"Page {current_page} of 5")
     st.markdown("---")
     
     # Render current page
@@ -1383,45 +1607,26 @@ def screen_results_main():
     elif current_page == 5:
         _results_page_5_action()
     
-    # Show note count if any notes exist
-    notes = st.session_state.get("results_notes", {})
-    note_count = sum(1 for v in notes.values() if v.strip())
-    if note_count > 0:
-        st.info(f"📝 You have notes on {note_count} page(s) - they'll be included in your export")
+    # Show note count if any notes exist (both questionnaire AND results notes)
+    questionnaire_notes = st.session_state.get("notes_by_section", {})
+    results_notes = st.session_state.get("results_notes", {})
+    questionnaire_note_count = sum(1 for v in questionnaire_notes.values() if v.strip())
+    results_note_count = sum(1 for v in results_notes.values() if v.strip())
+    total_note_count = questionnaire_note_count + results_note_count
     
-    # Navigation footer (always at bottom)
+    if total_note_count > 0:
+        st.info(f"📝 You have notes on {total_note_count} page(s) ({questionnaire_note_count} from questionnaire, {results_note_count} from results) - they'll be included in your export")
+    
+    # Page indicators at bottom
     st.markdown("---")
-    col1, col2, col3 = st.columns([1, 2, 1])
-    
-    with col1:
-        if current_page > 1:
-            if st.button("← Previous", use_container_width=True):
-                st.session_state.results_page -= 1
-                st.rerun()
+    dots = ""
+    for i in range(1, 6):
+        if i == current_page:
+            dots += "🔵 "
         else:
-            st.button("← Previous", disabled=True, use_container_width=True)
+            dots += "⚪ "
+    st.markdown(f"<div style='text-align: center; padding: 8px;'>{dots}</div>", unsafe_allow_html=True)
     
-    with col2:
-        # Page indicators
-        dots = ""
-        for i in range(1, 6):
-            if i == current_page:
-                dots += "🔵 "
-            else:
-                dots += "⚪ "
-        st.markdown(f"<div style='text-align: center; padding: 8px;'>{dots}</div>", unsafe_allow_html=True)
-    
-    with col3:
-        if current_page < 5:
-            if st.button("Next →", use_container_width=True, type="primary"):
-                st.session_state.results_page += 1
-                st.rerun()
-        else:
-            if st.button("🏠 Finish", use_container_width=True, type="primary"):
-                st.session_state.stage = "home"
-                st.rerun()
-    
-    st.markdown("---")
     st.caption("""
     💙 **Remember:** This is one snapshot in time. Mental load shifts with life circumstances. 
     The healthiest couples check in regularly, not just once.
@@ -1433,10 +1638,9 @@ def screen_results():
     """Route to either prep screen or main results"""
     # First time seeing results? Show prep screen
     if not st.session_state.get("results_prep_seen", False):
-        screen_before_results()
         st.session_state.results_prep_seen = True
+        screen_before_results()
     else:
-        # They've seen prep, show paginated results
         screen_results_main()
 ----
 screens/setup.py
@@ -1444,29 +1648,99 @@ import streamlit as st
 from tasks import get_filtered_tasks
 
 def screen_setup():
-    st.header("Household context (for couples)")
-    st.caption("We ask only what’s needed to tailor the questionnaire.")
-
-    c1,c2,c3 = st.columns([2,1,1])
-    with c1:
-        children = st.number_input("Number of children", min_value=0, max_value=10, step=1, value=st.session_state.children)
-        st.session_state.children = children
-    with c2:
-        st.session_state.is_employed_me = st.checkbox("Partner A employed?", value=st.session_state.is_employed_me)
-    with c3:
-        st.session_state.is_employed_partner = st.checkbox("Partner B employed?", value=st.session_state.is_employed_partner)
-
-    both_employed = st.session_state.is_employed_me and st.session_state.is_employed_partner
-    filtered = get_filtered_tasks(st.session_state.children, both_employed)
-    st.success(f"{len(filtered)} items selected for your context. Child-related items only show if you have children; some work items only if both are employed.")
-
-    if st.button("Start questionnaire →", type="primary"):
-        st.session_state.q_section_index = 0
-        st.session_state.q_task_index = 0
-        st.session_state.responses = []
-        st.session_state.notes_by_section = {}
-        st.session_state.stage = "questionnaire"
-
+    """Clean setup page with better layout"""
+    
+    st.markdown("""
+    <div style='text-align: center; margin-bottom: 25px;'>
+        <h1 style='font-size: 2rem; font-weight: 700; margin-bottom: 8px;'>Quick setup</h1>
+        <p style='font-size: 1rem; color: #64748b;'>Tell us about your household so we show relevant tasks</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("<div style='margin: 30px 0 20px;'></div>", unsafe_allow_html=True)
+    
+    # SECTION 1: Children
+    st.markdown("### 👨‍👩‍👧‍👦 Children")
+    children = st.number_input(
+        "How many children live in your household?", 
+        min_value=0, 
+        max_value=10, 
+        step=1, 
+        value=st.session_state.get("children", 0),
+        help="We'll show child-related tasks if you have children"
+    )
+    st.session_state.children = children
+    
+    st.markdown("<div style='margin: 25px 0;'></div>", unsafe_allow_html=True)
+    
+    # SECTION 2: Employment (side by side)
+    st.markdown("### 💼 Employment")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        is_employed_me = st.checkbox(
+            "Partner A employed?",
+            value=st.session_state.get("is_employed_me", True),
+            help="Tick if Partner A has paid employment"
+        )
+        st.session_state.is_employed_me = is_employed_me
+    
+    with col2:
+        is_employed_partner = st.checkbox(
+            "Partner B employed?",
+            value=st.session_state.get("is_employed_partner", True),
+            help="Tick if Partner B has paid employment"
+        )
+        st.session_state.is_employed_partner = is_employed_partner
+    
+    st.markdown("<div style='margin: 25px 0;'></div>", unsafe_allow_html=True)
+    
+    # SECTION 3: Pets and Vehicle (side by side)
+    st.markdown("### 🐾 Pets & 🚗 Vehicle")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        has_pets = st.checkbox(
+            "Do you have pets?",
+            value=st.session_state.get("has_pets", False),
+            help="We'll include pet care tasks"
+        )
+        st.session_state.has_pets = has_pets
+    
+    with col2:
+        has_vehicle = st.checkbox(
+            "Do you have a car/vehicle?",
+            value=st.session_state.get("has_vehicle", False),
+            help="We'll include vehicle maintenance tasks"
+        )
+        st.session_state.has_vehicle = has_vehicle
+    
+    st.markdown("<div style='margin: 30px 0 20px;'></div>", unsafe_allow_html=True)
+    
+    # Show task count - SIMPLER MESSAGE
+    both_employed = is_employed_me and is_employed_partner
+    filtered = get_filtered_tasks(children, both_employed, has_pets, has_vehicle)
+    
+    st.success(f"✅ **{len(filtered)} tasks** selected based on your answers")
+    
+    st.markdown("<div style='margin: 25px 0;'></div>", unsafe_allow_html=True)
+    
+    # Navigation
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col1:
+        if st.button("← Back", use_container_width=True):
+            st.session_state.stage = "consent"
+            st.rerun()
+    
+    with col2:
+        if st.button("Start questionnaire →", type="primary", use_container_width=True):
+            # Reset questionnaire state
+            st.session_state.responses_dict = {}
+            st.session_state.responses = []
+            st.session_state.notes_by_section = {}
+            st.session_state.stage = "questionnaire"
+            st.rerun()
 ----
 state.py
 import streamlit as st
@@ -1479,11 +1753,14 @@ def init_state():
         children=0,
         is_employed_me=True,
         is_employed_partner=True,
+        has_pets=False, 
+        has_vehicle=False, 
         # questionnaire progress
         q_section_index=0,
         q_task_index=0,
-        responses=[],              # list of dicts {task_id, responsibility, burden, fairness, not_applicable}
-        notes_by_section={},       # pillar -> str
+        responses=[],
+        notes_by_section={},
+        questionnaire_start_time=None,
     )
     for k,v in defaults.items():
         if k not in st.session_state:
@@ -1496,13 +1773,32 @@ def reset_state():
     init_state()
 
 ----
+streamlit/config.toml
+[theme]
+base="light"
+primaryColor="#3b82f6"
+backgroundColor="#ffffff"
+secondaryBackgroundColor="#f8fafc"
+textColor="#0f172a"
+font="sans serif"
+----
 tasks.py
-# tasks.py - EXPANDED VERSION
+"""
+tasks.py
+
+This module defines the full list of household tasks used by the Mental Load Helper.
+I've expanded and annotated the task catalogue so it can be filtered by household
+context (children, pets, vehicles, employment status) and grouped by pillar.
+
+Do not change task IDs casually — they're used as stable keys in session state and
+CSV exports.
+"""
+
 from typing import List, Dict
 from models import Task
 
 TASKS: list[Task] = [
-    # ========== ANTICIPATION PILLAR ==========
+    # Anticipation pillar — tasks that involve planning and thinking ahead
     
     Task(
         id="meal_planning",
@@ -1540,6 +1836,24 @@ TASKS: list[Task] = [
     ),
     
     Task(
+    id="holiday_planning",
+    name="Holiday & vacation planning",
+    pillar="anticipation",
+    definition=(
+        "Planning family holidays and vacations - researching, booking, and coordinating all the details."
+    ),
+    what_counts=[
+        "Researching holiday destinations and accommodation",
+        "Booking flights, hotels, activities",
+        "Planning itineraries and packing lists",
+        "Coordinating time off work and school holidays",
+        "Managing travel documents (passports, visas, insurance)",
+    ],
+    example="If one partner does most of the holiday research and booking, Responsibility ~80-100.",
+),
+
+    
+    Task(
         id="birthday_gifts",
         name="Gifts, cards & social obligations",
         pillar="anticipation",
@@ -1571,7 +1885,7 @@ TASKS: list[Task] = [
         example="If one partner does most of the forward-thinking, Responsibility ~70-90.",
     ),
     
-    # ========== IDENTIFICATION PILLAR ==========
+    # Identification pillar — visible tasks and noticing what needs doing
     
     Task(
         id="cooking",
@@ -1656,8 +1970,24 @@ TASKS: list[Task] = [
         ],
         example="If one partner notices and coordinates all repairs, Responsibility ~80-100.",
     ),
-    
-    # ========== DECISION PILLAR ==========
+    Task(
+    id="pet_care",
+    name="Pet care & management",
+    pillar="identification",
+    requires_pets=True,  # conditional flag: only include when household has pets
+    definition=(
+        "Daily pet care and the mental load of remembering vet appointments, food, medication, and pet needs."
+    ),
+    what_counts=[
+        "Feeding, walking, grooming pets",
+        "Remembering vet appointments and vaccinations",
+        "Noticing when pet food or supplies are running low",
+        "Coordinating pet care when away from home",
+        "Managing pet health issues and medication",
+    ],
+    example="If one partner manages all pet schedules and needs, Responsibility ~80-100.",
+),
+    # Decision pillar — tasks that require choosing, organising or deciding
     
     Task(
         id="bills_admin",
@@ -1725,8 +2055,25 @@ TASKS: list[Task] = [
         ],
         example="If one partner researches and enrolls children in activities, Responsibility ~80-100.",
     ),
-    
-    # ========== MONITORING PILLAR ==========
+    Task(
+    id="tech_troubleshooting",
+    name="Tech support & troubleshooting",
+    pillar="decision",
+    definition=(
+        "Being the household tech support - fixing issues, managing devices, and keeping digital life running."
+    ),
+    what_counts=[
+        "Fixing wifi/computer/phone problems",
+        "Managing subscriptions and accounts (Netflix, utilities apps, etc.)",
+        "Setting up new devices and software",
+        "Troubleshooting when tech doesn't work",
+        "Managing passwords, security, backups",
+        "Being the person everyone asks when tech breaks",
+    ],
+    note="This is executive function work - requires problem-solving and staying calm under pressure.",
+    example="If one partner is the default tech troubleshooter, Responsibility ~70-100.",
+),
+    # Monitoring pillar — keeping track, following up, and coordinating
     
     Task(
         id="kids_school",
@@ -1811,8 +2158,25 @@ TASKS: list[Task] = [
         ],
         example="If one partner does most of the 'work schedule tetris', Responsibility ~70-90.",
     ),
-    
-    # ========== EMOTIONAL PILLAR ==========
+    Task(
+    id="vehicle_maintenance",
+    name="Car/vehicle maintenance",
+    pillar="monitoring",
+    requires_vehicle=True,  # conditional flag: only include when household has a vehicle
+    definition=(
+        "Tracking car servicing, MOT, insurance, and ensuring the vehicle stays roadworthy."
+    ),
+    what_counts=[
+        "Remembering MOT and service due dates",
+        "Booking and arranging car maintenance",
+        "Managing car insurance renewals",
+        "Noticing when car needs attention (tyres, fluids, issues)",
+        "Coordinating repairs and dealing with mechanics",
+    ],
+    example="If one partner tracks and arranges all vehicle maintenance, Responsibility ~80-100.",
+),
+
+    # Emotional pillar — the emotional and relational work that keeps a home well
     
     Task(
         id="kids_emotional",
@@ -1899,15 +2263,33 @@ TASKS: list[Task] = [
 
 TASK_LOOKUP: Dict[str, Task] = {t.id: t for t in TASKS}
 
-def get_filtered_tasks(children: int, both_employed: bool) -> List[Task]:
+def get_filtered_tasks(children: int, both_employed: bool, has_pets: bool, has_vehicle: bool) -> List[Task]:
+    """
+    Filter tasks based on household context.
+    
+    Args:
+        children: Number of children
+        both_employed: Whether both partners are employed
+        has_pets: Whether household has pets
+        has_vehicle: Whether household has a car/vehicle
+    """
     out: List[Task] = []
     for t in TASKS:
+        # Skip child-related tasks if no children
         if t.requires_children and children <= 0:
             continue
+        # Skip employment tasks if not both employed
         if t.requires_employment and not both_employed:
+            continue
+        # Skip pet tasks if no pets
+        if t.requires_pets and not has_pets:
+            continue
+        # Skip vehicle tasks if no vehicle
+        if t.requires_vehicle and not has_vehicle:
             continue
         out.append(t)
     return out
+
 
 def group_by_pillar(tasks: List[Task]) -> Dict[str, List[Task]]:
     d: Dict[str, List[Task]] = {}
@@ -2040,6 +2422,7 @@ utils/ui.py
 # utils/ui.py
 import html
 import streamlit as st
+import streamlit.components.v1 as components
 from typing import List, Optional
 
 def _has_popover() -> bool:
@@ -2084,6 +2467,31 @@ def explainer_block(title: str, bullets: List[str]):
     st.markdown(f"**{_esc(title)}**", unsafe_allow_html=True)
     for b in bullets:
         st.write(f"- {b}")
+
+
+def scroll_to_top():
+    """Scroll the app viewport to the top using an embedded script.
+
+    This uses a few approaches in the script to improve reliability across
+    different Streamlit embedding/layout variations.
+    """
+    components.html(
+        """
+        <script>
+            try {
+                const mainContent = window.parent.document.querySelector('section.main');
+                if (mainContent) {
+                    mainContent.scrollTop = 0;
+                }
+            } catch(e) {}
+            try { window.parent.document.body.scrollTop = 0; } catch(e) {}
+            try { window.parent.document.documentElement.scrollTop = 0; } catch(e) {}
+            try { window.parent.scrollTo(0,0); } catch(e) {}
+            try { window.parent.scrollTo({top:0, behavior:'instant'}); } catch(e) {}
+        </script>
+        """,
+        height=0,
+    )
 
 def definition_box(
     title: str,

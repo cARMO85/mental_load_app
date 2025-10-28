@@ -187,7 +187,7 @@ def pillar_grouped_bar(pillar_scores: Dict[str, List[float]]) -> go.Figure:
     )
     fig.update_layout(
         height=300,
-        margin=dict(l=10, r=10, t=10, b=10),
+        margin=dict(l=10, r=10, t=10),
         legend=dict(orientation="h", y=1.08, x=0.0),
     )
     fig.update_xaxes(showgrid=False, ticks="")
@@ -329,7 +329,7 @@ def _results_page_1_share(results, hotspots):
     # Research context for their numbers
     diff = abs(a_share - b_share)
     if diff <= 15:
-        st.success("✅ **Your household shows relatively balanced mental load.** Research suggests 60/40 or closer is associated with higher relationship satisfaction.")
+        st.success("✅ **Your household shows a relatively balanced mental load.** Research on household cognitive labour shows large asymmetries are common, so a near-even split represents a more balanced pattern than is typically observed.")
     elif diff <= 30:
         st.info("📊 **Your split is common.** About 60% of couples show this pattern. The question is: does it feel sustainable to both of you?")
     else:
@@ -358,7 +358,33 @@ def _results_page_2_burden(results):
     
     st.markdown("---")
     
-    st.markdown("## 😰 Personal Burden")
+    # --- Added: heading with info button next to "Personal Burden" ---
+    col_left, col_right = st.columns([0.8, 0.2])
+    with col_left:
+        st.markdown("## 😰 Personal Burden")
+    with col_right:
+        try:
+            with st.popover("ℹ️ What does 'Burden' mean?"):
+                st.write(
+                    "Burden is the mental side of household work — thinking ahead, remembering, "
+                    "planning and coordinating. It’s not just minutes doing a chore, but the headspace it takes."
+                )
+        except Exception:
+            with st.expander("ℹ️ What does 'Burden' mean?"):
+                st.write(
+                    "Burden is the mental side of household work — thinking ahead, remembering, "
+                    "planning and coordinating. It’s not just minutes doing a chore, but the headspace it takes."
+                )
+    
+    # --- Added: super dummy-friendly explainer of how the score is made and why it makes sense ---
+    st.success(
+        "**In plain terms:** For each task we combine three things — (1) who mostly carries it, "
+        "(2) how draining it feels, and (3) how fair it feels. "
+        "If you carry more of a task *and* it feels heavy or unfair, your Burden score goes up. "
+        "We add that across tasks to show each person’s overall mental load. This makes sense because "
+        "both responsibility and how it feels day-to-day shape the real ‘weight’ you experience."
+    )
+    
     st.markdown("""
     **Personal burden (0-100):** This isn't about how much time tasks take - it's about how draining 
     the mental work feels.
