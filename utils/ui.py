@@ -1,6 +1,7 @@
 # utils/ui.py
 import html
 import streamlit as st
+import streamlit.components.v1 as components
 from typing import List, Optional
 
 def _has_popover() -> bool:
@@ -45,6 +46,31 @@ def explainer_block(title: str, bullets: List[str]):
     st.markdown(f"**{_esc(title)}**", unsafe_allow_html=True)
     for b in bullets:
         st.write(f"- {b}")
+
+
+def scroll_to_top():
+    """Scroll the app viewport to the top using an embedded script.
+
+    This uses a few approaches in the script to improve reliability across
+    different Streamlit embedding/layout variations.
+    """
+    components.html(
+        """
+        <script>
+            try {
+                const mainContent = window.parent.document.querySelector('section.main');
+                if (mainContent) {
+                    mainContent.scrollTop = 0;
+                }
+            } catch(e) {}
+            try { window.parent.document.body.scrollTop = 0; } catch(e) {}
+            try { window.parent.document.documentElement.scrollTop = 0; } catch(e) {}
+            try { window.parent.scrollTo(0,0); } catch(e) {}
+            try { window.parent.scrollTo({top:0, behavior:'instant'}); } catch(e) {}
+        </script>
+        """,
+        height=0,
+    )
 
 def definition_box(
     title: str,

@@ -1,5 +1,6 @@
 # screens/results.py
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
@@ -22,6 +23,34 @@ PILLAR_LABELS = {
     "monitoring": "Monitoring",
     "emotional": "Emotional",
 }
+
+# ---------- Scroll to top helper ----------
+def scroll_to_top():
+    """Force scroll to top using multiple methods for reliability"""
+    components.html(
+        """
+        <script>
+            // Method 1: Scroll main content area
+            const mainContent = window.parent.document.querySelector('section.main');
+            if (mainContent) {
+                mainContent.scrollTop = 0;
+            }
+            
+            // Method 2: Scroll body
+            window.parent.document.body.scrollTop = 0;
+            
+            // Method 3: Scroll document element
+            window.parent.document.documentElement.scrollTop = 0;
+            
+            // Method 4: Use scrollTo on window
+            window.parent.scrollTo(0, 0);
+            
+            // Method 5: Use scrollTo with behavior
+            window.parent.scrollTo({top: 0, behavior: 'instant'});
+        </script>
+        """,
+        height=0,
+    )
 
 # ---------- utils ----------
 def _to_response_objects(response_dicts):
@@ -179,10 +208,8 @@ def _export_csv(responses, results, hotspots):
                 "Partner B invisible share (%)",
             ],
             "Value": [
-                # Backwards-compatible: some compute() implementations return
-                # `my_burden`/`partner_burden`, newer ones return `my_intensity`/`partner_intensity`.
-                results.get("my_burden", results.get("my_intensity", 0)),
-                results.get("partner_burden", results.get("partner_intensity", 0)),
+                results["my_burden"],
+                results["partner_burden"],
                 results["my_share_pct"],
                 results["partner_share_pct"],
             ],
@@ -224,78 +251,41 @@ def _export_csv(responses, results, hotspots):
 
 # ---------- conversation prep screen ----------
 def screen_before_results():
-    """Pre-results conversation guide"""
+    """Minimal prep before viewing results"""
     st.title("💬 Before You See Your Results")
-    st.markdown("### A few minutes to prepare for a productive conversation")
+    st.caption("Quick prep for a productive conversation")
     
     st.markdown("""
-    You're about to see data about mental load in your household. This can bring up big feelings - 
-    that's completely normal and actually a sign you're both invested in your partnership.
+    You're about to see data about mental load in your household. This can bring up feelings - 
+    that's normal and shows you're both invested.
     """)
     
     st.markdown("---")
     
-    st.markdown("### 🎓 What Research Tells Us")
-    st.info("""
-    **Mental load** (also called cognitive labour) is the invisible work of managing a household: 
-    anticipating needs, making decisions, tracking details, and coordinating family life.
-    
-    Research consistently shows:
-    - This work is often invisible to the person not doing it
-    - In heterosexual couples, women typically carry 70-80% of this load
-    - It's **not about time spent** - it's about the mental energy of being "on call"
-    - Even in couples who split visible tasks 50/50, mental load is often imbalanced
-    - The biggest predictor of relationship satisfaction isn't perfect equality - it's feeling **heard and understood**
-    """)
-    
-    st.markdown("### 🤝 Ground Rules for This Conversation")
+    # Ground rules - CONDENSED
     st.success("""
-    **Do:**
-    - Assume good intentions
-    - Listen to understand, not to defend
-    - Notice what surprises you
-    - Acknowledge the other person's feelings as valid
-    - Take breaks if it gets intense
-    
-    **Don't:**
-    - Keep score or bring up past grievances  
-    - Interrupt or dismiss
-    - Try to "win" the conversation
-    - Expect to solve everything today
+    **🤝 Quick ground rules:**
+    - **Do:** Listen to understand, acknowledge feelings, take breaks if needed
+    - **Don't:** Keep score, interrupt, or try to "win"
     """)
     
-    st.markdown("### 🎯 The Goal of This Exercise")
-    st.markdown("""
-    The point isn't to create perfect 50/50 splits or to prove who's right. 
-    
-    **The goal is to:**
-    1. Make invisible work visible
-    2. Understand each other's experience
-    3. Find 1-2 small changes you both agree to try
-    4. Build a habit of checking in together
+    # Key insight - ONE LINE
+    st.info("""
+    **💡 Research shows:** Feeling heard matters more than perfect equality. Just discussing mental load improves relationships.
     """)
     
-    st.markdown("---")
-    
-    st.markdown("### ✋ Before You Continue")
-    st.warning("""
-    **Pause here if:**
-    - Either of you is tired, hungry, or stressed right now
-    - You've been arguing about this recently
-    - One of you isn't ready to have this conversation
-    
-    This tool will be here when you're both ready. There's no rush.
-    """)
+    # Pause warning
+    st.warning("⏸️ **Pause if** either of you is tired, stressed, or not ready. This can wait.")
     
     st.markdown("---")
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("← Back to questionnaire", use_container_width=True):
+        if st.button("← Back", use_container_width=True):
             st.session_state.stage = "questionnaire"
             st.rerun()
     with col2:
-        if st.button("We're ready - show results →", use_container_width=True, type="primary"):
+        if st.button("Show results →", use_container_width=True, type="primary"):
             st.session_state.results_page = 1
             st.session_state.stage = "results_main"
             st.rerun()
@@ -379,9 +369,7 @@ def _results_page_2_burden(results):
     - Carrying responsibility without recognition
     """)
     
-    # Support older and newer keys: prefer explicit burden if present, otherwise use intensity
-    a_burden = results.get("my_burden", results.get("my_intensity", 0))
-    b_burden = results.get("partner_burden", results.get("partner_intensity", 0))
+    a_burden, b_burden = results["my_burden"], results["partner_burden"]
     st.plotly_chart(comparison_bars(a_burden, b_burden, 100, "Partner A", "Partner B"), use_container_width=True)
     
     # Research context
@@ -551,38 +539,42 @@ def _results_page_5_action():
     st.markdown("---")
     
     # ====== EXPERIMENT ======
-    st.markdown("## 🧪 Try One Small Experiment")
-    st.markdown("""
-    Research on behaviour change shows that small, time-bound experiments work better than big overhauls.
+    # ====== CRITICAL: SURVEY LINK ======
+    st.markdown("## 📋 Essential: Quick Survey")
+    st.error("""
+    **⚠️ Please complete this 5-minute survey now - it's crucial for the research!**
     
-    **The invitation:** Pick ONE thing from your conversation starters. Agree to try a small change 
-    for one week, then check in.
+    Your feedback helps us understand if the tool was useful.
+    This directly impacts the validity of the thesis research.
     """)
     
-    st.info("""
-    **What makes a good experiment:**
-    - Specific (not "help more" but "Partner B will plan meals Tuesday-Thursday")
-    - Time-bound (try for one week)
-    - Agreed by both (not imposed on one person)
-    - Reversible (you can always go back)
-    """)
+    survey_url = "https://forms.office.com/e/jM0DXUg1vV"
+    
+    col1, col2, col3 = st.columns([1, 3, 1])
+    with col2:
+        st.link_button(
+            "📋 Complete survey now (5 min) →",
+            survey_url,
+            use_container_width=True,
+            type="primary"
+        )
+        st.caption("⭐ Essential for research • Completely anonymous")
     
     st.markdown("---")
-    st.markdown("## 🎉 You've Completed the Journey")
+    
+    # Done
     st.success("""
-    You've taken an important step toward understanding mental load in your household. 
+    **🎉 You've completed the tool!**
     
     **Next steps:**
-    - Add any final notes below
-    - Download your results (including all your notes from questionnaire AND results)
-    - Try your small experiment for one week
-    - Check in together next weekend
-    - Return to this tool in a month to see how things have shifted
+    1. ✅ Complete the survey above
+    2. 📥 Download your results if you want a copy(button at top)
+    3. 🧪 Try your one-week experiment
+    4. 🔄 Check in next week
     """)
     
-    # Optional notes
     st.markdown("---")
-    _add_notes_section("Page 5: Action Plan & Experiment")
+    _add_notes_section("Page 5: Action Plan")
 
 
 # ---------- main results navigation ----------
@@ -605,16 +597,26 @@ def screen_results_main():
     
     current_page = st.session_state.results_page
     
-    # Header navigation (always visible)
-    col1, col2, col3 = st.columns([2, 1, 1])
+    # TOP NAVIGATION - So users don't need to scroll
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     with col1:
-        st.caption(f"Page {current_page} of 5")
+        if current_page > 1:
+            if st.button("← Previous", key="top_prev", use_container_width=True):
+                st.session_state.results_page -= 1
+                st.rerun()
+        else:
+            st.button("← Previous", key="top_prev_disabled", disabled=True, use_container_width=True)
     with col2:
-        if st.button("🔁 Start Over", use_container_width=True):
-            reset_state()
-            st.session_state.stage = "home"
-            st.rerun()
-    with col3:
+        if current_page < 5:
+            if st.button("Next →", key="top_next", use_container_width=True, type="primary"):
+                st.session_state.results_page += 1
+                st.rerun()
+        else:
+            if st.button("🏠 Finish", key="top_finish", use_container_width=True, type="primary"):
+                st.session_state.stage = "home"
+                st.rerun()
+    
+    with col4:
         csv_data = _export_csv(st.session_state.responses, results, hotspots)
         st.download_button(
             "📥 Export",
@@ -622,8 +624,10 @@ def screen_results_main():
             file_name="mental_load_results.csv",
             mime="text/csv",
             use_container_width=True,
+            key="top_export"
         )
     
+    st.caption(f"Page {current_page} of 5")
     st.markdown("---")
     
     # Render current page
@@ -648,39 +652,16 @@ def screen_results_main():
     if total_note_count > 0:
         st.info(f"📝 You have notes on {total_note_count} page(s) ({questionnaire_note_count} from questionnaire, {results_note_count} from results) - they'll be included in your export")
     
-    # Navigation footer (always at bottom)
+    # Page indicators at bottom
     st.markdown("---")
-    col1, col2, col3 = st.columns([1, 2, 1])
-    
-    with col1:
-        if current_page > 1:
-            if st.button("← Previous", use_container_width=True):
-                st.session_state.results_page -= 1
-                st.rerun()
+    dots = ""
+    for i in range(1, 6):
+        if i == current_page:
+            dots += "🔵 "
         else:
-            st.button("← Previous", disabled=True, use_container_width=True)
+            dots += "⚪ "
+    st.markdown(f"<div style='text-align: center; padding: 8px;'>{dots}</div>", unsafe_allow_html=True)
     
-    with col2:
-        # Page indicators
-        dots = ""
-        for i in range(1, 6):
-            if i == current_page:
-                dots += "🔵 "
-            else:
-                dots += "⚪ "
-        st.markdown(f"<div style='text-align: center; padding: 8px;'>{dots}</div>", unsafe_allow_html=True)
-    
-    with col3:
-        if current_page < 5:
-            if st.button("Next →", use_container_width=True, type="primary"):
-                st.session_state.results_page += 1
-                st.rerun()
-        else:
-            if st.button("🏠 Finish", use_container_width=True, type="primary"):
-                st.session_state.stage = "home"
-                st.rerun()
-    
-    st.markdown("---")
     st.caption("""
     💙 **Remember:** This is one snapshot in time. Mental load shifts with life circumstances. 
     The healthiest couples check in regularly, not just once.
