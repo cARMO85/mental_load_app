@@ -42,7 +42,12 @@ PILLAR_ORDER = ["anticipation", "identification", "decision", "monitoring", "emo
 
 def screen_questionnaire():
     """Simple questionnaire - all sections visible, just scroll through"""
-    
+    # Top-right Home button
+    top_col1, top_col2 = st.columns([6, 1])
+    with top_col2:
+        if st.button("🏠 Home", use_container_width=True):
+            st.session_state.stage = "home"
+            st.rerun()  
     # Header
     st.markdown("""
     <div style='text-align: center; margin-bottom: 30px;'>
@@ -200,6 +205,7 @@ def render_task(task):
     with col_main:
         # Question 1: Responsibility
         st.markdown("**Who mainly handles this?**")
+        st.caption("Slide towards Partner A or Partner B to indicate who takes primary responsibility for this task.")
         responsibility = st.slider(
             "Responsibility",
             min_value=0, 
@@ -221,6 +227,7 @@ def render_task(task):
         
         # Question 2: Burden
         st.markdown("**How mentally draining is this?**")
+        st.caption("Even if a task seems small, it can still feel mentally or emotionally tiring — this question captures that sense of strain.")
         burden = st.slider(
             "Mental burden",
             min_value=1, 
@@ -239,6 +246,7 @@ def render_task(task):
         
         # Question 3: Fairness
         st.markdown("**Does this feel fair?**")
+        st.caption("Sometimes one person does more, but both partners still feel the split is fair — that’s not a problem. This is about how fair it feels, not whether it’s equal.")
         fairness = st.slider(
             "Fairness",
             min_value=1, 

@@ -24,34 +24,6 @@ PILLAR_LABELS = {
     "emotional": "Emotional",
 }
 
-# ---------- Scroll to top helper ----------
-def scroll_to_top():
-    """Force scroll to top using multiple methods for reliability"""
-    components.html(
-        """
-        <script>
-            // Method 1: Scroll main content area
-            const mainContent = window.parent.document.querySelector('section.main');
-            if (mainContent) {
-                mainContent.scrollTop = 0;
-            }
-            
-            // Method 2: Scroll body
-            window.parent.document.body.scrollTop = 0;
-            
-            // Method 3: Scroll document element
-            window.parent.document.documentElement.scrollTop = 0;
-            
-            // Method 4: Use scrollTo on window
-            window.parent.scrollTo(0, 0);
-            
-            // Method 5: Use scrollTo with behavior
-            window.parent.scrollTo({top: 0, behavior: 'instant'});
-        </script>
-        """,
-        height=0,
-    )
-
 # ---------- utils ----------
 def _to_response_objects(response_dicts):
     objs = []
@@ -252,6 +224,13 @@ def _export_csv(responses, results, hotspots):
 # ---------- conversation prep screen ----------
 def screen_before_results():
     """Minimal prep before viewing results"""
+    # Top-right Home button
+    _pre_l, _pre_r = st.columns([6, 1])
+    with _pre_r:
+        if st.button("Home", use_container_width=True, key="pre_home"):
+            st.session_state.stage = "home"
+            st.rerun()
+
     st.title("💬 Before You See Your Results")
     st.caption("Quick prep for a productive conversation")
     
@@ -606,12 +585,12 @@ def _results_page_5_action():
 # ---------- main results navigation ----------
 def screen_results_main():
     """Main results with pagination"""
-    
+
     if not st.session_state.get("responses"):
         st.warning("No results yet. Please complete the questionnaire first.")
         return
 
-    # compute results once
+    # Compute results once
     response_objs = _to_response_objects(st.session_state.responses)
     calc = Calculator(response_objs)
     results = calc.compute()
@@ -620,19 +599,23 @@ def screen_results_main():
     # Initialise page if not set
     if "results_page" not in st.session_state:
         st.session_state.results_page = 1
-    
+
     current_page = st.session_state.results_page
-    
-    # TOP NAVIGATION - So users don't need to scroll
+
+    # ----- TOP NAVIGATION -----
     col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+
     with col1:
+        # Previous button
         if current_page > 1:
             if st.button("← Previous", key="top_prev", use_container_width=True):
                 st.session_state.results_page -= 1
                 st.rerun()
         else:
             st.button("← Previous", key="top_prev_disabled", disabled=True, use_container_width=True)
+
     with col2:
+        # Next or Finish button
         if current_page < 5:
             if st.button("Next →", key="top_next", use_container_width=True, type="primary"):
                 st.session_state.results_page += 1
@@ -641,8 +624,15 @@ def screen_results_main():
             if st.button("🏠 Finish", key="top_finish", use_container_width=True, type="primary"):
                 st.session_state.stage = "home"
                 st.rerun()
-    
+
+    with col3:
+        # NEW: Home button (Escape option)
+        if st.button("Home", key="top_home", use_container_width=True):
+            st.session_state.stage = "home"
+            st.rerun()
+
     with col4:
+        # Export button stays far right
         csv_data = _export_csv(st.session_state.responses, results, hotspots)
         st.download_button(
             "📥 Export",
@@ -652,11 +642,12 @@ def screen_results_main():
             use_container_width=True,
             key="top_export"
         )
-    
+
+    # Page number indicator
     st.caption(f"Page {current_page} of 5")
     st.markdown("---")
-    
-    # Render current page
+
+    # ----- RENDER CURRENT PAGE -----
     if current_page == 1:
         _results_page_1_share(results, hotspots)
     elif current_page == 2:
@@ -667,27 +658,28 @@ def screen_results_main():
         _results_page_4_hotspots(hotspots)
     elif current_page == 5:
         _results_page_5_action()
-    
-    # Show note count if any notes exist (both questionnaire AND results notes)
+
+    # ----- NOTES COUNT -----
     questionnaire_notes = st.session_state.get("notes_by_section", {})
     results_notes = st.session_state.get("results_notes", {})
     questionnaire_note_count = sum(1 for v in questionnaire_notes.values() if v.strip())
     results_note_count = sum(1 for v in results_notes.values() if v.strip())
     total_note_count = questionnaire_note_count + results_note_count
-    
+
     if total_note_count > 0:
-        st.info(f"📝 You have notes on {total_note_count} page(s) ({questionnaire_note_count} from questionnaire, {results_note_count} from results) - they'll be included in your export")
-    
-    # Page indicators at bottom
+        st.info(
+            f"📝 You have notes on {total_note_count} page(s) "
+            f"({questionnaire_note_count} from questionnaire, {results_note_count} from results) "
+            "- they'll be included in your export."
+        )
+
+    # ----- PAGE INDICATORS -----
     st.markdown("---")
     dots = ""
     for i in range(1, 6):
-        if i == current_page:
-            dots += "🔵 "
-        else:
-            dots += "⚪ "
+        dots += "🔵 " if i == current_page else "⚪ "
     st.markdown(f"<div style='text-align: center; padding: 8px;'>{dots}</div>", unsafe_allow_html=True)
-    
+
     st.caption("""
     💙 **Remember:** This is one snapshot in time. Mental load shifts with life circumstances. 
     The healthiest couples check in regularly, not just once.

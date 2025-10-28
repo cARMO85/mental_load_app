@@ -26,3 +26,4 @@ def reset_state():
     for k in keys:
         del st.session_state[k]
     init_state()
+
