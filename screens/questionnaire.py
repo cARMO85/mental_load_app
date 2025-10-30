@@ -61,6 +61,9 @@ def screen_questionnaire():
         st.markdown("""
         **For each task, answer three questions:**
         1. **Who mainly handles this?** (Slider: Partner A ← → Partner B)
+           - A coloured bar below shows which side you're on:
+           - **Blue bar** = Partner A side
+           - **Orange bar** = Partner B side
         2. **How mentally draining is this?** (1 = light, 5 = very draining)
         3. **Does this feel fair?** (1 = very unfair, 5 = very fair)
         
@@ -179,7 +182,7 @@ def screen_questionnaire():
 
 
 def render_task(task):
-    """Render a single task with its three questions"""
+    """Render task with VISUAL COLOUR BAR indicator"""
     
     # Get existing response
     existing = st.session_state.responses_dict.get(task.id, {})
@@ -199,13 +202,15 @@ def render_task(task):
             if task.example:
                 st.info(f"**Example:** {task.example}")
     
-    # Create columns for main questions and N/A checkbox
+    st.markdown("")  # Spacing
+    
+    # Create columns
     col_main, col_na = st.columns([4, 1])
     
     with col_main:
-        # Question 1: Responsibility
+        # Question 1: Responsibility - WITH COLOUR BAR BELOW
         st.markdown("**Who mainly handles this?**")
-        st.caption("Slide towards Partner A or Partner B to indicate who takes primary responsibility for this task.")
+        
         responsibility = st.slider(
             "Responsibility",
             min_value=0, 
@@ -215,19 +220,59 @@ def render_task(task):
             label_visibility="collapsed"
         )
         
-        # Feedback
+        # COLOUR BAR INDICATOR - highly visible
         if responsibility < 30:
-            st.caption("← Mostly Partner A")
-        elif responsibility > 70:
-            st.caption("Mostly Partner B →")
+            # Strongly Partner A
+            bar_colour = "#0072B2"  # Blue
+            bar_text = "🔵 Mostly Partner A"
+            bar_width = "35%"
+            bar_align = "left"
+        elif responsibility < 50:
+            # Somewhat Partner A
+            bar_colour = "#5DADE2"  # Light blue
+            bar_text = "🔵 Leaning Partner A"
+            bar_width = "25%"
+            bar_align = "left"
+        elif responsibility == 50:
+            # Exactly middle
+            bar_colour = "#94a3b8"  # Grey
+            bar_text = "↔️ Exactly equal"
+            bar_width = "15%"
+            bar_align = "center"
+        elif responsibility <= 70:
+            # Somewhat Partner B
+            bar_colour = "#F5B041"  # Light orange
+            bar_text = "Leaning Partner B 🟠"
+            bar_width = "25%"
+            bar_align = "right"
         else:
-            st.caption("↔️ Shared fairly equally")
+            # Strongly Partner B
+            bar_colour = "#E69F00"  # Orange
+            bar_text = "Mostly Partner B 🟠"
+            bar_width = "35%"
+            bar_align = "right"
+        
+        # Display the colour bar
+        st.markdown(f"""
+        <div style='display: flex; justify-content: {bar_align}; margin: 8px 0 12px 0;'>
+            <div style='background-color: {bar_colour}; 
+                        padding: 8px 16px; 
+                        border-radius: 6px; 
+                        width: {bar_width};
+                        text-align: center;
+                        font-weight: 600;
+                        color: white;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>
+                {bar_text}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
         st.markdown("")
         
         # Question 2: Burden
         st.markdown("**How mentally draining is this?**")
-        st.caption("Even if a task seems small, it can still feel mentally or emotionally tiring — this question captures that sense of strain.")
+        st.caption("For whoever mainly handles it")
         burden = st.slider(
             "Mental burden",
             min_value=1, 
@@ -244,9 +289,9 @@ def render_task(task):
         
         st.markdown("")
         
-        # Question 3: Fairness
-        st.markdown("**Does this feel fair?**")
-        st.caption("Sometimes one person does more, but both partners still feel the split is fair — that’s not a problem. This is about how fair it feels, not whether it’s equal.")
+        # Question 3: Fairness - CLARIFIED
+        st.markdown("**Does this feel fair to BOTH of you?**")
+        st.caption("⚠️ Discuss together and agree on one rating")
         fairness = st.slider(
             "Fairness",
             min_value=1, 
@@ -270,13 +315,13 @@ def render_task(task):
             label_visibility="collapsed"
         )
     
-    # Save response if changed from defaults
+    # Save response when anything changes
     has_changed = (
         existing  # Already exists
         or not_applicable  # N/A checked
-        or responsibility != 50  # Moved
-        or burden != 3  # Moved
-        or fairness != 3  # Moved
+        or responsibility != 50  # Moved from default
+        or burden != 3  # Moved from default
+        or fairness != 3  # Moved from default
     )
     
     if has_changed:

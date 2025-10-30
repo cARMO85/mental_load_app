@@ -67,7 +67,7 @@ def screen_consent():
         **Risks:** Minimal; choose a good headspace.  
         **Benefits:** Personalised insights and prompts.  
         **Research basis:** Daminger (2019), Dean et al. (2022), Barigozzi et al. (2025).  
-        **Contact:** [insert your university email]
+        **Contact:** w23045813@northumbrai.ac.uk
         """)
 
     st.markdown("<div style='margin: 30px 0 10px;'></div>", unsafe_allow_html=True)
