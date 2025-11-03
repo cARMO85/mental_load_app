@@ -1,8 +1,21 @@
+# screens/setup.py
 import streamlit as st
 from tasks import get_filtered_tasks
+from components.navigation import render_navigation
+
 
 def screen_setup():
-    """Clean setup page - FIXED NUMBER INPUT BUG"""
+    """Setup page with navigation and +/- buttons for children"""
+    
+    # NAVIGATION HEADER
+    render_navigation(
+        show_back=True,
+        back_stage="consent",
+        back_label="← Back to agreement",
+        show_home=True,
+        show_restart=False,
+        page_title="Setup"
+    )
     
     st.markdown("""
     <div style='text-align: center; margin-bottom: 25px;'>
@@ -13,25 +26,49 @@ def screen_setup():
     
     st.markdown("<div style='margin: 30px 0 20px;'></div>", unsafe_allow_html=True)
     
-    # SECTION 1: Children - USING SLIDER INSTEAD OF NUMBER INPUT TO AVOID BUG
+    # SECTION 1: Children - CUSTOM +/- BUTTONS
     st.markdown("### 👨‍👩‍👧‍👦 Children")
-    children = st.slider(
-        "How many children live in your household?", 
-        min_value=0, 
-        max_value=10, 
-        value=st.session_state.get("children", 0),
-        help="We'll show child-related tasks if you have children",
-        format="%d"
-    )
-    st.session_state.children = children
     
-    # Show the number clearly
-    if children == 0:
-        st.caption("No children")
-    elif children == 1:
-        st.caption("1 child")
-    else:
-        st.caption(f"{children} children")
+    # Initialize if not set
+    if "children" not in st.session_state:
+        st.session_state.children = 0
+    
+    # Create columns for the +/- controls
+    col1, col2, col3, col4 = st.columns([1, 1, 2, 3])
+    
+    with col1:
+        if st.button("➖", key="children_minus", use_container_width=True):
+            if st.session_state.children > 0:
+                st.session_state.children -= 1
+                st.rerun()
+    
+    with col2:
+        if st.button("➕", key="children_plus", use_container_width=True):
+            if st.session_state.children < 10:
+                st.session_state.children += 1
+                st.rerun()
+    
+    with col3:
+        # Display the current number prominently
+        children_display = st.session_state.children
+        if children_display == 0:
+            display_text = "No children"
+        elif children_display == 1:
+            display_text = "1 child"
+        else:
+            display_text = f"{children_display} children"
+        
+        st.markdown(f"""
+        <div style='background: #f1f5f9; 
+                    padding: 8px 16px; 
+                    border-radius: 6px; 
+                    text-align: center;
+                    font-size: 1.1rem;
+                    font-weight: 600;
+                    margin-top: 4px;'>
+            {display_text}
+        </div>
+        """, unsafe_allow_html=True)
     
     st.markdown("<div style='margin: 25px 0;'></div>", unsafe_allow_html=True)
     
@@ -81,19 +118,14 @@ def screen_setup():
     
     # Show task count
     both_employed = is_employed_me and is_employed_partner
-    filtered = get_filtered_tasks(children, both_employed, has_pets, has_vehicle)
+    filtered = get_filtered_tasks(st.session_state.children, both_employed, has_pets, has_vehicle)
     
     st.success(f"✅ **{len(filtered)} tasks** selected based on your answers")
     
     st.markdown("<div style='margin: 25px 0;'></div>", unsafe_allow_html=True)
     
-    # Navigation
+    # Navigation - ONLY FORWARD BUTTON AT BOTTOM
     col1, col2, col3 = st.columns([1, 2, 1])
-    
-    with col1:
-        if st.button("← Back", use_container_width=True):
-            st.session_state.stage = "consent"
-            st.rerun()
     
     with col2:
         if st.button("Start questionnaire →", type="primary", use_container_width=True):

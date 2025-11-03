@@ -3,6 +3,7 @@ import streamlit as st
 from typing import Dict, List
 
 from tasks import get_filtered_tasks, group_by_pillar
+from components.navigation import render_navigation
 
 # --------- Simple pillar headers ---------
 PILLAR_INFO: Dict[str, Dict[str, str]] = {
@@ -40,19 +41,25 @@ PILLAR_INFO: Dict[str, Dict[str, str]] = {
 
 PILLAR_ORDER = ["anticipation", "identification", "decision", "monitoring", "emotional"]
 
+
 def screen_questionnaire():
-    """Simple questionnaire - all sections visible, just scroll through"""
-    # Top-right Home button
-    top_col1, top_col2 = st.columns([6, 1])
-    with top_col2:
-        if st.button("🏠 Home", use_container_width=True):
-            st.session_state.stage = "home"
-            st.rerun()  
+    """Simple questionnaire with navigation"""
+    
+    # NAVIGATION HEADER
+    render_navigation(
+        show_back=True,
+        back_stage="setup",
+        back_label="← Back to setup",
+        show_home=True,
+        show_restart=False,
+        page_title="Questionnaire"
+    )
+    
     # Header
     st.markdown("""
     <div style='text-align: center; margin-bottom: 30px;'>
         <h1 style='font-size: 2rem; font-weight: 700; margin-bottom: 8px;'>Your household tasks</h1>
-        <p style='font-size: 1.1rem; color: #64748b;'>Answer these together • Scroll through all sections • Take your time</p>
+        <p style='font-size: 1.1rem; color: #64748b;'>Answer these together • Take your time</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -61,9 +68,7 @@ def screen_questionnaire():
         st.markdown("""
         **For each task, answer three questions:**
         1. **Who mainly handles this?** (Slider: Partner A ← → Partner B)
-           - A coloured bar below shows which side you're on:
-           - **Blue bar** = Partner A side
-           - **Orange bar** = Partner B side
+           - A coloured bar below shows which side you're on
         2. **How mentally draining is this?** (1 = light, 5 = very draining)
         3. **Does this feel fair?** (1 = very unfair, 5 = very fair)
         
@@ -111,7 +116,7 @@ def screen_questionnaire():
         info = PILLAR_INFO[pillar_key]
         pillar_tasks = pillars[pillar_key]
         
-        # Section header - simple and clear
+        # Section header
         st.markdown(f"""
         <div style='background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%); 
                     border-left: 5px solid #6366f1; padding: 20px; border-radius: 12px; margin: 40px 0 25px 0;'>
@@ -150,7 +155,7 @@ def screen_questionnaire():
     # Convert dict to list for compatibility
     st.session_state.responses = list(st.session_state.responses_dict.values())
     
-    # Bottom navigation
+    # Bottom navigation - ONLY FORWARD BUTTON
     st.markdown("<div style='margin: 50px 0 30px 0;'></div>", unsafe_allow_html=True)
     st.markdown("---")
     
@@ -159,11 +164,6 @@ def screen_questionnaire():
                           if not r.get("not_applicable", False))
     
     col1, col2, col3 = st.columns([1, 2, 1])
-    
-    with col1:
-        if st.button("← Back to setup", use_container_width=True):
-            st.session_state.stage = "setup"
-            st.rerun()
     
     with col2:
         if actual_completed < 5:
@@ -181,11 +181,74 @@ def screen_questionnaire():
             st.caption(f"✅ {actual_completed} tasks answered")
 
 
+# Callback functions to update state
+def update_responsibility(task_id):
+    """Update responsibility when slider changes"""
+    value = st.session_state[f"{task_id}_resp"]
+    if task_id not in st.session_state.responses_dict:
+        st.session_state.responses_dict[task_id] = {
+            "task_id": task_id,
+            "responsibility": 50,
+            "burden": 3,
+            "fairness": 3,
+            "not_applicable": False,
+        }
+    st.session_state.responses_dict[task_id]["responsibility"] = value
+
+
+def update_burden(task_id):
+    """Update burden when slider changes"""
+    value = st.session_state[f"{task_id}_burden"]
+    if task_id not in st.session_state.responses_dict:
+        st.session_state.responses_dict[task_id] = {
+            "task_id": task_id,
+            "responsibility": 50,
+            "burden": 3,
+            "fairness": 3,
+            "not_applicable": False,
+        }
+    st.session_state.responses_dict[task_id]["burden"] = value
+
+
+def update_fairness(task_id):
+    """Update fairness when slider changes"""
+    value = st.session_state[f"{task_id}_fair"]
+    if task_id not in st.session_state.responses_dict:
+        st.session_state.responses_dict[task_id] = {
+            "task_id": task_id,
+            "responsibility": 50,
+            "burden": 3,
+            "fairness": 3,
+            "not_applicable": False,
+        }
+    st.session_state.responses_dict[task_id]["fairness"] = value
+
+
+def update_not_applicable(task_id):
+    """Update N/A when checkbox changes"""
+    value = st.session_state[f"{task_id}_na"]
+    if task_id not in st.session_state.responses_dict:
+        st.session_state.responses_dict[task_id] = {
+            "task_id": task_id,
+            "responsibility": 50,
+            "burden": 3,
+            "fairness": 3,
+            "not_applicable": False,
+        }
+    st.session_state.responses_dict[task_id]["not_applicable"] = value
+
+
 def render_task(task):
-    """Render task with VISUAL COLOUR BAR indicator"""
+    """Render task with on_change callbacks for smooth updates"""
     
-    # Get existing response
-    existing = st.session_state.responses_dict.get(task.id, {})
+    # Get existing response or use defaults
+    existing = st.session_state.responses_dict.get(task.id, {
+        "task_id": task.id,
+        "responsibility": 50,
+        "burden": 3,
+        "fairness": 3,
+        "not_applicable": False,
+    })
     
     # Task header
     st.markdown(f"### {task.name}")
@@ -202,13 +265,13 @@ def render_task(task):
             if task.example:
                 st.info(f"**Example:** {task.example}")
     
-    st.markdown("")  # Spacing
+    st.markdown("")
     
     # Create columns
     col_main, col_na = st.columns([4, 1])
     
     with col_main:
-        # Question 1: Responsibility - WITH COLOUR BAR BELOW
+        # Question 1: Responsibility
         st.markdown("**Who mainly handles this?**")
         
         responsibility = st.slider(
@@ -217,42 +280,38 @@ def render_task(task):
             max_value=100, 
             value=existing.get("responsibility", 50),
             key=f"{task.id}_resp",
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            on_change=update_responsibility,
+            args=(task.id,)
         )
         
-        # COLOUR BAR INDICATOR - highly visible
+        # Colour bar indicator
         if responsibility < 30:
-            # Strongly Partner A
-            bar_colour = "#0072B2"  # Blue
+            bar_colour = "#0072B2"
             bar_text = "🔵 Mostly Partner A"
             bar_width = "35%"
             bar_align = "left"
         elif responsibility < 50:
-            # Somewhat Partner A
-            bar_colour = "#5DADE2"  # Light blue
+            bar_colour = "#5DADE2"
             bar_text = "🔵 Leaning Partner A"
             bar_width = "25%"
             bar_align = "left"
         elif responsibility == 50:
-            # Exactly middle
-            bar_colour = "#94a3b8"  # Grey
+            bar_colour = "#94a3b8"
             bar_text = "↔️ Exactly equal"
             bar_width = "15%"
             bar_align = "center"
         elif responsibility <= 70:
-            # Somewhat Partner B
-            bar_colour = "#F5B041"  # Light orange
+            bar_colour = "#F5B041"
             bar_text = "Leaning Partner B 🟠"
             bar_width = "25%"
             bar_align = "right"
         else:
-            # Strongly Partner B
-            bar_colour = "#E69F00"  # Orange
+            bar_colour = "#E69F00"
             bar_text = "Mostly Partner B 🟠"
             bar_width = "35%"
             bar_align = "right"
         
-        # Display the colour bar
         st.markdown(f"""
         <div style='display: flex; justify-content: {bar_align}; margin: 8px 0 12px 0;'>
             <div style='background-color: {bar_colour}; 
@@ -273,6 +332,7 @@ def render_task(task):
         # Question 2: Burden
         st.markdown("**How mentally draining is this?**")
         st.caption("For whoever mainly handles it")
+        
         burden = st.slider(
             "Mental burden",
             min_value=1, 
@@ -280,7 +340,9 @@ def render_task(task):
             value=existing.get("burden", 3),
             key=f"{task.id}_burden",
             format="%d",
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            on_change=update_burden,
+            args=(task.id,)
         )
         
         burden_emoji = {1: "😌", 2: "🙂", 3: "😐", 4: "😓", 5: "😰"}
@@ -289,9 +351,10 @@ def render_task(task):
         
         st.markdown("")
         
-        # Question 3: Fairness - CLARIFIED
+        # Question 3: Fairness
         st.markdown("**Does this feel fair to BOTH of you?**")
         st.caption("⚠️ Discuss together and agree on one rating")
+        
         fairness = st.slider(
             "Fairness",
             min_value=1, 
@@ -299,7 +362,9 @@ def render_task(task):
             value=existing.get("fairness", 3),
             key=f"{task.id}_fair",
             format="%d",
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            on_change=update_fairness,
+            args=(task.id,)
         )
         
         fairness_emoji = {1: "😟", 2: "😕", 3: "😐", 4: "🙂", 5: "😊"}
@@ -312,23 +377,7 @@ def render_task(task):
             "Not applicable",
             value=existing.get("not_applicable", False),
             key=f"{task.id}_na",
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            on_change=update_not_applicable,
+            args=(task.id,)
         )
-    
-    # Save response when anything changes
-    has_changed = (
-        existing  # Already exists
-        or not_applicable  # N/A checked
-        or responsibility != 50  # Moved from default
-        or burden != 3  # Moved from default
-        or fairness != 3  # Moved from default
-    )
-    
-    if has_changed:
-        st.session_state.responses_dict[task.id] = {
-            "task_id": task.id,
-            "responsibility": responsibility,
-            "burden": burden,
-            "fairness": fairness,
-            "not_applicable": not_applicable,
-        }
