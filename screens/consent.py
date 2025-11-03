@@ -77,7 +77,7 @@ def screen_consent():
         
         **Not a substitute for:** Couples therapy or counselling.
         
-        **Contact:** w23056813@northumbria.ac.uk (REPLACE WITH YOUR ACTUAL EMAIL)
+        **Contact:** w23056813@northumbria.ac.uk 
         """)
     
     st.markdown("<div style='margin: 22px 0 8px;'></div>", unsafe_allow_html=True)
