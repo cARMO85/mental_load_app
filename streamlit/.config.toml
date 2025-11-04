@@ -8,3 +8,11 @@ font="sans serif"
 
 [browser]
 gatherUsageStats = false
+
+[server]
+enableCORS = true
+enableXsrfProtection = true
+
+[client]
+toolbarMode = "minimal"
+
